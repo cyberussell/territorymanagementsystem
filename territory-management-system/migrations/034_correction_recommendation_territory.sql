@@ -1,0 +1,11 @@
+-- Extends the Correction recommendation flow (020_correction_recommendation.sql,
+-- 030_correction_section_block.sql) to also let a publisher recommend a different Territory
+-- (Barangay) — a record can be filed under the wrong barangay entirely, not just the wrong
+-- Section/Block within the right one. Same review-gated shape: the record's real territory_id
+-- is untouched until the Admin applies it.
+--
+-- territory_records' FOURTH FK to territories (after territory_id, move_recommended_territory_id
+-- from 033) — every embed of territories/territory_sections/territory_blocks from
+-- territory_records is already disambiguated with a !column hint as of 033's audit, so this only
+-- needs its own new hinted embed added alongside, not a re-audit of the existing ones.
+alter table public.territory_records add column if not exists correction_recommended_territory_id uuid references public.territories(id) on delete set null;
