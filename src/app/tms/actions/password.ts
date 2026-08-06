@@ -19,13 +19,15 @@ export async function requestPasswordResetAction(_prev: ActionResult, formData: 
   // Group Leader accounts no longer use emailed reset links at all (confirmed with Russell,
   // unifying with the invite flow's move to Admin-issued temp passwords — see
   // GroupLeadersManager.tsx's "Reset Password" button and the invite-flow checkpoint for the
-  // full reasoning). Checking the role here and skipping the email send for a group_leader
-  // account doesn't change the response shown to the requester either way (still the same
-  // generic "SAVED" success), so it doesn't leak whether an email is registered — only whether
-  // an actual email got sent, which isn't observable from the outside.
+  // full reasoning). This does surface that the address belongs to a Group Leader account
+  // specifically (a narrower leak than the generic "SAVED" response), but a group leader who
+  // owns the address needs to know no email is coming instead of waiting on one that never
+  // arrives — the previous "SAVED" here was actively misleading them, not just non-disclosing.
   const admin = createAdminSupabase()
   const { data: profile } = await admin.from('profiles').select('role').eq('email', parsed.data.email).maybeSingle()
-  if (profile?.role === 'group_leader') return { error: 'SAVED' }
+  if (profile?.role === 'group_leader') {
+    return { error: 'Group Leaders don’t use email reset — ask your Administrator to reset your password from the Group Leaders page.' }
+  }
 
   const supabase = await createServerSupabase()
   // Always the same success message regardless of whether the email actually has an account —
