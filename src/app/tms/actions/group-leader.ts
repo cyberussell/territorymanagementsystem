@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { requireGroupLeader } from '@/lib/territory-management-system/modules/auth/queries'
 import { createAssignmentSchema } from '@/lib/territory-management-system/modules/assignment/schema'
 import {
+  addPartnershipToBatch,
   cancelRecordAssignmentOffer,
   createAssignment,
   createRecordAssignmentOffer,
@@ -194,4 +195,26 @@ export async function cancelRecordAssignmentOfferAction(offerId: string): Promis
   const { supabase } = await requireGroupLeader()
   await cancelRecordAssignmentOffer(supabase, offerId)
   revalidatePath('/tms/group-leader/dashboard')
+}
+
+// Manually adds one more Ministry Partner to an already-generated House To House batch —
+// confirmed with Russell: only while the territory still has unassigned households
+// (addPartnershipToBatch re-verifies and errors otherwise, telling the Group Leader to generate
+// a Language Searcher group instead, since that's the right move once nothing's left to hand a
+// House To House partner). Same "never rely on RLS alone" ownership re-check as
+// offerRecordToPartnershipAction above.
+export async function addPartnershipAction(batchId: string): Promise<{ error?: string }> {
+  const { supabase, congregation, userId } = await requireGroupLeader()
+  const batch = await getBatchById(supabase, batchId)
+  if (!batch || (batch.created_by !== userId && batch.created_by !== null)) {
+    return { error: 'You can only add a partner to your own assignment.' }
+  }
+  if (batch.is_overflow) {
+    return { error: 'Language Searcher groups already start empty — generate a new one from the Home tab instead.' }
+  }
+
+  const result = await addPartnershipToBatch(supabase, congregation.id, batchId)
+  if ('error' in result) return { error: result.error }
+  revalidatePath('/tms/group-leader/dashboard')
+  return {}
 }

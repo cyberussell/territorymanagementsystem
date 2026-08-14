@@ -18,7 +18,7 @@ import { NumberStepper } from './AssignmentForm'
 // has to.
 //
 // The Group Leader deliberately does NOT choose a search area here — that choice moved to each
-// Ministry Partner individually (see ChooseSearchScopeForm), a one-time locked-in pick made
+// Language Searcher individually (see ChooseSearchScopeForm), a one-time locked-in pick made
 // after they claim their partnership. Blocks are shareable across partnerships by design (see
 // 037_partnership_search_blocks_shareable.sql); only the section itself is a one-time,
 // single choice per partnership.
@@ -64,7 +64,7 @@ export default function OverflowAssignmentForm({ territories }: { territories: {
         <div className="rounded-lg border border-blue-100 bg-[#F8FBFF] p-3 text-sm text-slate-500">
           <p>
             {publisherCount} publisher{publisherCount === 1 ? '' : 's'} in groups of {groupSize} → {partnershipCount} new
-            Ministry Partner{partnershipCount === 1 ? '' : 's'}, each starting with no assigned records — they go canvass/search
+            Language Searcher{partnershipCount === 1 ? '' : 's'}, each starting with no assigned records — they go canvass/search
             the territory instead.
           </p>
         </div>
@@ -74,7 +74,7 @@ export default function OverflowAssignmentForm({ territories }: { territories: {
           disabled={pending || selected.length === 0}
           className="w-full rounded-lg border border-[#2563EB] bg-white py-2.5 font-semibold text-[#2563EB] transition hover:bg-blue-50 disabled:opacity-50"
         >
-          {pending ? 'Generating…' : 'Create Auxiliary Groups'}
+          {pending ? 'Generating…' : 'Create Language Searcher Group'}
         </button>
       </form>
     </Card>

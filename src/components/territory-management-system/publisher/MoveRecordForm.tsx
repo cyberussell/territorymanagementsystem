@@ -38,7 +38,7 @@ export default function MoveRecordForm({
               className={inputClass}
             >
               <option value="" disabled>
-                Select a Ministry Partner…
+                Select a partner…
               </option>
               {siblingPartnerships.map((p) => (
                 <option key={p.id} value={p.id}>

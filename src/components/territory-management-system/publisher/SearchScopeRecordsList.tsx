@@ -130,7 +130,7 @@ export default function SearchScopeRecordsList({
         message={
           confirmPartnerNames.length > 0
             ? `This block is currently being searched by ${formatPartnerNames(confirmPartnerNames)}. You can still view its location on the map.`
-            : 'No other Ministry Partner currently has this block locked for search — you may be the only one working this area today. You can still view its location on the map.'
+            : 'No other Language Searcher currently has this block locked for search — you may be the only one working this area today. You can still view its location on the map.'
         }
         confirmLabel="Open Maps"
         variant="info"

@@ -58,7 +58,7 @@ export default function SharePartnershipCard({ batchToken, partnershipToken }: {
         <p className="text-sm font-semibold text-white">Share with Partner</p>
       </div>
       <p className="mt-1 text-xs text-white/70">
-        Share this with your Ministry Partner so they can work this same list on their own phone.
+        Share this with your partner so they can work this same list on their own phone.
       </p>
 
       {qrDataUrl && (

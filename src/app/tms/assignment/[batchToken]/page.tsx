@@ -24,7 +24,9 @@ export default async function BatchLandingPage({ params }: { params: Promise<{ b
         <p className="mt-1 text-center text-sm text-slate-700">
           {batch.assignment_date} — {batch.territories.map((t) => t.name).join(', ') || '—'}
         </p>
-        <p className="mt-4 text-center text-sm text-slate-700">Select Ministry Partner Number</p>
+        <p className="mt-4 text-center text-sm text-slate-700">
+          Select {batch.is_overflow ? 'Language Searcher' : 'Ministry Partner'} Number
+        </p>
         <div className="mt-4 space-y-3">
           {batch.partnerships.map((p) => (
             <PartnershipCard key={p.id} partnership={p} batchToken={batchToken} />

@@ -31,6 +31,7 @@ import type { BatchStats, TerritoryVisitHistoryEntry } from '@/lib/territory-man
 import type { MapRecordPin } from '@/lib/territory-management-system/modules/assignment/queries'
 import { VISIT_RESULT_LABELS } from '@/lib/territory-management-system/modules/records/schema'
 import {
+  addPartnershipAction,
   cancelRecordAssignmentOfferAction,
   deleteGroupLeaderAssignmentAction,
   endPartnershipAction,
@@ -40,6 +41,7 @@ import {
 import StatCard from '@/components/territory-management-system/dashboard/StatCard'
 import Card from '@/components/territory-management-system/dashboard/Card'
 import ConfirmDeleteButton from '@/components/territory-management-system/dashboard/ConfirmDeleteButton'
+import AddPartnershipButton from '@/components/territory-management-system/AddPartnershipButton'
 import PartnershipList from '@/components/territory-management-system/PartnershipList'
 import VisitResultBarChart from '@/components/territory-management-system/VisitResultBarChart'
 import AssignmentForm from '@/components/territory-management-system/AssignmentForm'
@@ -211,17 +213,17 @@ export default function GroupLeaderTabs({
   const partnersFinished = combinedStats.partnerships.filter((p) => p.finished_at).length
 
   // Label for the batch switcher AND the Partners tab's per-batch section headers below —
-  // "House To House" for the original, "Auxiliary Groups" for an overflow batch (numbered
-  // "Auxiliary Groups 2", "Auxiliary Groups 3"... only once there's more than one, since a Group
-  // Leader can generate more than one overflow batch the same day). Computed once into a map
-  // (rather than a mutable counter read directly in each render site) so calling it from two
+  // "House To House" for the original, "Language Searchers" for an overflow batch (numbered
+  // "Language Searchers 2", "Language Searchers 3"... only once there's more than one, since a
+  // Group Leader can generate more than one overflow batch the same day). Computed once into a
+  // map (rather than a mutable counter read directly in each render site) so calling it from two
   // separate places in the same render doesn't double-advance the overflow numbering.
   let overflowSeen = 0
   const batchLabelById = new Map(
     batches.map((b) => {
       if (!b.isOverflow) return [b.batchId, 'House To House'] as const
       overflowSeen += 1
-      return [b.batchId, overflowSeen === 1 ? 'Auxiliary Groups' : `Auxiliary Groups ${overflowSeen}`] as const
+      return [b.batchId, overflowSeen === 1 ? 'Language Searchers' : `Language Searchers ${overflowSeen}`] as const
     })
   )
   const batchLabel = (b: BatchView) => batchLabelById.get(b.batchId) ?? 'House To House'
@@ -388,7 +390,7 @@ export default function GroupLeaderTabs({
                 className={isOverflow ? 'absolute right-4 top-4 text-red-400 hover:text-red-300' : 'absolute right-4 top-4 text-red-400 hover:text-red-600'}
               />
               <h2 className={`font-semibold ${isOverflow ? 'text-white' : 'text-[#0B1B33]'}`}>
-                {isOverflow ? 'Auxiliary Group QR Code' : 'House To House QR Code'}
+                {isOverflow ? 'Language Searcher QR Code' : 'House To House QR Code'}
               </h2>
               {batchBarangays.length > 0 && (
                 <p className={`-mt-2 text-xs font-medium ${isOverflow ? 'text-[#60A5FA]' : 'text-[#2563EB]'}`}>
@@ -423,8 +425,9 @@ export default function GroupLeaderTabs({
           {shortfallPartnerships > 0 && (
             <div className="mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-700">
               {shortfallPartnerships} fewer partnership{shortfallPartnerships === 1 ? '' : 's'}{' '}
-              were created than requested — there weren&apos;t enough approved records in the selected territories. Create
-              Auxiliary Groups below if more publishers than expected showed up.
+              were created than requested — there weren&apos;t enough approved records in the selected territories. If more
+              publishers than expected showed up, add a Ministry Partner from the Partners tab while unassigned households
+              remain, or create a Language Searcher group below once they don&apos;t.
             </div>
           )}
 
@@ -452,14 +455,14 @@ export default function GroupLeaderTabs({
                     assignmentAction === 'generate' ? 'bg-[#2563EB] text-white' : 'bg-blue-50 text-[#2563EB] hover:bg-blue-100'
                   }`}
                 >
-                  Create Auxiliary Groups
+                  Create Language Searcher Group
                 </button>
               )}
             </div>
 
             {assignmentAction === 'generate' && todaysTerritories.length > 0 && (
               <div ref={assignmentPanelRef} className="mt-4 scroll-mt-4">
-                <h2 className="mb-1 font-semibold text-[#0B1B33]">Create Auxiliary Groups</h2>
+                <h2 className="mb-1 font-semibold text-[#0B1B33]">Create Language Searcher Group</h2>
                 <p className="mb-4 text-xs text-slate-500">
                   For extra publishers when a territory has more people than the original assignment had room for. Adds a new,
                   separate QR code — today&apos;s existing assignment(s) are untouched.
@@ -504,7 +507,7 @@ export default function GroupLeaderTabs({
             <h2 className="font-semibold text-[#0B1B33]">Visit Results</h2>
             <p className="mt-1 text-sm text-slate-500">
               How every contact record has been logged so far today, across the currently generated assignment (House To House plus any
-              Auxiliary Groups) — not a running history. The small arrow badge shows what&apos;s changed since you first opened this tab
+              Language Searcher groups) — not a running history. The small arrow badge shows what&apos;s changed since you first opened this tab
               today.
             </p>
           </div>
@@ -543,12 +546,18 @@ export default function GroupLeaderTabs({
           order (not this filtered list's own position), so a partner's badge here matches their
           pin on the Map tab exactly, whichever batch is currently selected. */}
       {tab === 'progress' && (
-        <PartnershipList
-          partnerships={stats.partnerships}
-          onEndPartnership={endPartnershipAction}
-          onLoadAssignedRecords={getPartnershipAssignedRecordsAction}
-          colorIndexById={new Map(combinedStats.partnerships.map((p, i) => [p.id, i]))}
-        />
+        <div className="space-y-4">
+          {/* Language Searcher batches already start every partner empty by design — "add one
+              more" only makes sense for a House To House batch with genuine leftover households
+              to hand out (addPartnershipToBatch re-verifies that server-side regardless). */}
+          {!isOverflow && <AddPartnershipButton batchId={batchId} onAdd={addPartnershipAction} />}
+          <PartnershipList
+            partnerships={stats.partnerships}
+            onEndPartnership={endPartnershipAction}
+            onLoadAssignedRecords={getPartnershipAssignedRecordsAction}
+            colorIndexById={new Map(combinedStats.partnerships.map((p, i) => [p.id, i]))}
+          />
+        </div>
       )}
 
       {tab === 'map' && (
@@ -556,8 +565,8 @@ export default function GroupLeaderTabs({
           <div>
             <h2 className="font-semibold text-[#0B1B33]">Today&apos;s Territory Map</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Every contact record in today&apos;s assignment (House To House plus any Auxiliary Groups), colored by which Ministry
-              Partner it&apos;s assigned to. Gray pins aren&apos;t assigned yet — tap one to offer it to a partner of your choice; they
+              Every contact record in today&apos;s assignment (House To House plus any Language Searcher groups), colored by which
+              partner it&apos;s assigned to. Gray pins aren&apos;t assigned yet — tap one to offer it to a partner of your choice; they
               still need to accept it. Amber pins are already offered and awaiting a response.
             </p>
           </div>

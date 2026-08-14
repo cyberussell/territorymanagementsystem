@@ -1,6 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { calculateAssignment, isAssignmentError, type AssignmentError, type EligibleRecord } from './engine'
+import { calculateAssignment, groupIntoUnits, isAssignmentError, DEFAULT_MAX_PER_PARTNERSHIP, type AssignmentError, type EligibleRecord } from './engine'
 import { isBatchExpired } from './date'
 import { getCongregationPlusCodeAnchor, getRecordsInBlocks, listRecordsAddedByPartnership } from '../records/queries'
 import { BIBLE_STUDY_FAMILY_RESULTS, isDoNotCallLocked } from '../records/schema'
@@ -16,6 +16,17 @@ import type {
   RecordSearchResult,
   RecordTransferRequestError,
 } from './types'
+
+// "Ministry Partner" names a House To House pair; "Language Searcher" names an Auxiliary/overflow
+// one (confirmed with Russell — the two roles do different work: revisiting existing approved
+// households vs. canvassing/searching for new ones, and the default name should say which).
+// Single source of truth for every place a partnership's auto-generated default name is set —
+// createAssignment (initial + overflow generation), addPartnershipToBatch (manually adding one
+// House To House partner later), and releasePartnership (resetting an unclaimed one back to
+// default) all call this instead of inlining the string, so the two labels can never drift apart.
+function defaultPartnershipName(isOverflow: boolean, sequence: number): string {
+  return `${isOverflow ? 'Language Searcher' : 'Ministry Partner'} ${sequence}`
+}
 
 // Fetches the eligible ('approved') record pool across the selected territories, in the
 // canonical walking order the sequential engine relies on: territory selection order, then
@@ -437,7 +448,7 @@ export async function createAssignment(
         congregation_id: congregationId,
         batch_id: batchId,
         sequence: partnershipPlan.sequence,
-        name: `Ministry Partner ${partnershipPlan.sequence}`,
+        name: defaultPartnershipName(Boolean(input.forceZeroRecords), partnershipPlan.sequence),
       })
       .select('id')
       .single()
@@ -460,6 +471,88 @@ export async function createAssignment(
   }
 
   return { batchId, unassignedCount: plan.unassignedCount }
+}
+
+export interface AddPartnershipResult {
+  partnershipId: string
+}
+
+// Manually adds one more Ministry Partner to an EXISTING House To House batch — confirmed with
+// Russell: for when the original headcount (or maxPerPartnership) left households unassigned
+// and more publishers than expected showed up, discovered only after the QR was already
+// generated. Deliberately House-To-House only (see offerRecordToPartnershipAction's own batch
+// guard in actions/group-leader.ts): a Language Searcher batch already starts every partner with
+// zero records by design (createAssignment's forceZeroRecords) — the equivalent gap there is a
+// brand new Language Searcher batch, not adding to an existing one, since there's nothing in the
+// unassigned pool for a search-focused pair to be handed anyway.
+//
+// Fills the new partner directly, no accept/decline step — unlike offerRecordToPartnershipAction,
+// this is a brand-new partnership with no existing list of its own to disturb, same as the
+// original batch generation. Capped at DEFAULT_MAX_PER_PARTNERSHIP like a normal generated
+// partner (not "grab everything left") so a Group Leader with a large leftover pool adds several
+// partners by clicking again, same one-partnership-at-a-time shape as the rest of this action.
+export async function addPartnershipToBatch(
+  supabase: SupabaseClient,
+  congregationId: string,
+  batchId: string
+): Promise<{ error: string } | AddPartnershipResult> {
+  const { data: territoryLinks } = await supabase.from('assignment_batch_territories').select('territory_id').eq('batch_id', batchId)
+  const territoryIds = (territoryLinks ?? []).map((l) => l.territory_id as string)
+  if (territoryIds.length === 0) return { error: 'This assignment has no territories.' }
+
+  const eligibleRecords = await fetchEligibleRecordIds(supabase, congregationId, territoryIds)
+  if (eligibleRecords.length === 0) {
+    return { error: 'No unassigned contact records left in this territory — generate a Language Searcher group instead.' }
+  }
+
+  // Re-verify against partnership_records directly rather than trusting any earlier snapshot —
+  // same "never trust a stale count, re-check server-side" rule as
+  // createRecordAssignmentOffer/claimUnassignedRecord. A record's assignment is congregation-wide
+  // (it could have been claimed/offered into a Language Searcher partnership too, not just this
+  // batch's own), so this checks every eligible record id regardless of which batch holds it.
+  const { data: assignedRows } = await supabase
+    .from('partnership_records')
+    .select('record_id')
+    .in(
+      'record_id',
+      eligibleRecords.map((r) => r.id)
+    )
+  const assignedIds = new Set((assignedRows ?? []).map((r) => r.record_id as string))
+  const unassigned = eligibleRecords.filter((r) => !assignedIds.has(r.id))
+  if (unassigned.length === 0) {
+    return { error: 'No unassigned contact records left in this territory — generate a Language Searcher group instead.' }
+  }
+
+  const units = groupIntoUnits(unassigned)
+  const recordIds = units.slice(0, DEFAULT_MAX_PER_PARTNERSHIP).flat()
+
+  const { data: lastRow } = await supabase
+    .from('partnerships')
+    .select('sequence')
+    .eq('batch_id', batchId)
+    .order('sequence', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextSequence = ((lastRow?.sequence as number | undefined) ?? 0) + 1
+
+  const { data: partnership, error: partnershipError } = await supabase
+    .from('partnerships')
+    .insert({ congregation_id: congregationId, batch_id: batchId, sequence: nextSequence, name: defaultPartnershipName(false, nextSequence) })
+    .select('id')
+    .single()
+  if (partnershipError) return { error: partnershipError.message }
+
+  const { error: recordsError } = await supabase.from('partnership_records').insert(
+    recordIds.map((recordId, index) => ({
+      congregation_id: congregationId,
+      partnership_id: partnership.id,
+      record_id: recordId,
+      sequence: index + 1,
+    }))
+  )
+  if (recordsError) return { error: recordsError.message }
+
+  return { partnershipId: partnership.id as string }
 }
 
 export async function deleteBatch(supabase: SupabaseClient, batchId: string): Promise<void> {
@@ -1030,10 +1123,10 @@ export async function renamePartnership(supabase: SupabaseClient, partnershipId:
 // device) to claim. Deliberately distinct from terminatePartnershipEarly: that marks a real
 // day's work as cut short; this undoes a claim that never became real work in the first place —
 // releasePartnershipAction only allows it while zero records have been visited.
-export async function releasePartnership(supabase: SupabaseClient, partnershipId: string, sequence: number): Promise<void> {
+export async function releasePartnership(supabase: SupabaseClient, partnershipId: string, sequence: number, isOverflow: boolean): Promise<void> {
   const { error } = await supabase
     .from('partnerships')
-    .update({ claimed_at: null, name: `Ministry Partner ${sequence}` })
+    .update({ claimed_at: null, name: defaultPartnershipName(isOverflow, sequence) })
     .eq('id', partnershipId)
   if (error) throw error
 }

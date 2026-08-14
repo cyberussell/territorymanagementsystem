@@ -45,7 +45,8 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: 'Can I work with a partner on the same assignment?',
-    answer: 'Yes — that\'s what "Ministry Partner" means. You and a partner share one assignment link.',
+    answer:
+      'Yes — that\'s what "Ministry Partner" (House To House) or "Language Searcher" (Auxiliary Groups) means. You and a partner share one assignment link.',
   },
   {
     question: 'Should I screenshot or share this app?',

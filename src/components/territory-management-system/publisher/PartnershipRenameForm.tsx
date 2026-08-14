@@ -6,18 +6,21 @@ import Card from '@/components/territory-management-system/dashboard/Card'
 
 // Owned entirely by the parent shell (onRename) — it decides whether to enqueue-and-flush or
 // just enqueue, depending on connectivity, so this form has no idea whether it's online.
-// The auto-generated name every partnership starts with ("Ministry Partner 1", set at batch
-// creation — see createAssignment) is a real stored value, not a placeholder, so it always
-// pre-filled the input and the actual placeholder ("Put your names") never had a chance to
-// show. Starting the field empty in that specific case lets the placeholder do its job; once a
-// partnership has a real name, editing it still pre-fills normally.
-const DEFAULT_NAME_PATTERN = /^Ministry Partner \d+$/
+// The auto-generated name every partnership starts with ("Ministry Partner 1" for a House To
+// House batch, "Language Searcher 1" for a Language Searcher one — see
+// defaultPartnershipName/createAssignment) is a real stored value, not a placeholder, so it
+// always pre-filled the input and the actual placeholder ("Put your names") never had a chance
+// to show. Starting the field empty in that specific case lets the placeholder do its job; once
+// a partnership has a real name, editing it still pre-fills normally.
+const DEFAULT_NAME_PATTERN = /^(Ministry Partner|Language Searcher) \d+$/
 
 export default function PartnershipRenameForm({
   currentName,
+  isOverflow,
   onRename,
 }: {
   currentName: string
+  isOverflow: boolean
   onRename: (name: string) => void
 }) {
   const [name, setName] = useState(DEFAULT_NAME_PATTERN.test(currentName) ? '' : currentName)
@@ -30,7 +33,9 @@ export default function PartnershipRenameForm({
           width button on its own row below always renders, keyboard or not. */}
       <div className="flex flex-col gap-3">
         <div>
-          <label className="text-sm font-medium text-slate-600">Names of Ministry Partners</label>
+          <label className="text-sm font-medium text-slate-600">
+            Names of {isOverflow ? 'Language Searchers' : 'Ministry Partners'}
+          </label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}

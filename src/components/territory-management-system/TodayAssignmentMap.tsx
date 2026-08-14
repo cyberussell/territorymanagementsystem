@@ -132,7 +132,7 @@ function OfferPopupBody({
   }
 
   if (partners.length === 0) {
-    return <p className="mt-1 text-slate-500">No Ministry Partners available to offer this to yet.</p>
+    return <p className="mt-1 text-slate-500">No partners available to offer this to yet.</p>
   }
 
   return (

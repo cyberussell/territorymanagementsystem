@@ -75,7 +75,7 @@ export default function PublisherSearchPanel({
       if (result.error && result.error !== 'SAVED') {
         toast.error(result.error)
       } else {
-        toast.success(`Request sent to ${askConfirmFor.assignedTo?.partnershipName ?? 'the Ministry Partner'}.`)
+        toast.success(`Request sent to ${askConfirmFor.assignedTo?.partnershipName ?? 'the partner'}.`)
       }
     } finally {
       setAsking(false)
@@ -261,7 +261,7 @@ export default function PublisherSearchPanel({
       <div>
         <h2 className="font-semibold text-[#0B1B33]">Search Today&apos;s Assigned Records</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Search by name, address, or Plus Code across every Ministry Partner working today — House To House and Auxiliary Groups alike.
+          Search by name, address, or Plus Code across every partner working today — House To House and Language Searchers alike.
         </p>
         <form onSubmit={handleSearch} className="mt-3 flex gap-2">
           <input
@@ -294,10 +294,10 @@ export default function PublisherSearchPanel({
                 {r.assignedTo ? (
                   <>
                     <p className="mt-1 text-xs font-medium text-amber-600">
-                      Assigned to {r.assignedTo.partnershipName} ({r.assignedTo.isOverflow ? 'Auxiliary Group' : 'House To House'})
+                      Assigned to {r.assignedTo.partnershipName} ({r.assignedTo.isOverflow ? 'Language Searcher' : 'House To House'})
                     </p>
                     {blockedByGroupType(r) ? (
-                      <p className="mt-1 text-xs text-slate-400">Auxiliary Groups cannot request House To House records.</p>
+                      <p className="mt-1 text-xs text-slate-400">Language Searchers cannot request House To House records.</p>
                     ) : (
                       <button
                         type="button"
@@ -329,7 +329,7 @@ export default function PublisherSearchPanel({
       <ConfirmModal
         open={askConfirmFor !== null}
         title="Ask for this record?"
-        message={`Send a request to ${askConfirmFor?.assignedTo?.partnershipName ?? 'the Ministry Partner'} for ${
+        message={`Send a request to ${askConfirmFor?.assignedTo?.partnershipName ?? 'the partner'} for ${
           askConfirmFor?.residentName || askConfirmFor?.address || 'this record'
         }? They'll need to approve it before it's actually transferred to you.`}
         confirmLabel={asking ? 'Sending…' : 'Send Request'}

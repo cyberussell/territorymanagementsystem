@@ -93,7 +93,7 @@ function describeQueueItem(item: SyncQueueItem): string {
 // field, not a systemic bug — a real server-side "Sync Issues" admin page would be the next step
 // up if this starts happening often enough to justify it.
 function buildFailedSyncReport(items: SyncQueueItem[], partnerName: string): string {
-  const lines = [`Sync issues — ${partnerName || 'Ministry Partner'} — ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`, '']
+  const lines = [`Sync issues — ${partnerName || 'Partner'} — ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`, '']
   for (const item of items) {
     lines.push(`• ${describeQueueItem(item)}`)
     lines.push(`  Error: ${item.error ?? 'Sync failed.'}`)
@@ -378,7 +378,7 @@ export default function PublisherWorkspaceApp({
       if (online) await handleSync()
       const remainingRecords = workspace.records.filter((r) => r.record.id !== recordId)
       setWorkspace((w) => ({ ...w, records: remainingRecords }))
-      toast.success('Moved to another Ministry Partner.')
+      toast.success('Moved to another partner.')
       const next = [...remainingRecords].sort((a, b) => a.sequence - b.sequence).find((r) => !r.completed_at)
       setView(next ? { name: 'detail', recordId: next.record.id } : { name: 'list' })
       window.scrollTo({ top: 0, behavior: 'auto' })
@@ -957,7 +957,7 @@ export default function PublisherWorkspaceApp({
         {showSessionChrome && view.name === 'home' && !readOnly && (
           <div className="text-center">
             <button type="button" onClick={handleSwitchPartner} className="text-xs font-medium text-slate-400 hover:text-[#2563EB] hover:underline">
-              Wrong Ministry Partner? Switch
+              Wrong Partner? Switch
             </button>
           </div>
         )}
@@ -973,7 +973,7 @@ export default function PublisherWorkspaceApp({
             <div className="rounded-2xl border border-gray-300 bg-white p-4 text-center text-sm text-slate-600 shadow-[0_0_18px_-3px_rgba(148,163,184,0.6)]">
               Enter your name(s) below to begin — your assigned contact records will appear once saved.
             </div>
-            <PartnershipRenameForm currentName={workspace.name} onRename={handleRename} />
+            <PartnershipRenameForm currentName={workspace.name} isOverflow={workspace.batch.is_overflow} onRename={handleRename} />
           </>
         )}
 
@@ -988,7 +988,7 @@ export default function PublisherWorkspaceApp({
 
         {view.name === 'home' && (readOnly || workspace.claimed_at) && !needsSearchScope && (
           <>
-            {!readOnly && <PartnershipRenameForm currentName={workspace.name} onRename={handleRename} />}
+            {!readOnly && <PartnershipRenameForm currentName={workspace.name} isOverflow={workspace.batch.is_overflow} onRename={handleRename} />}
 
             {(() => {
               const mappableTerritories = workspace.territories.filter((t) => mapUrls[t.id] && territoriesWithStructure.has(t.id))
