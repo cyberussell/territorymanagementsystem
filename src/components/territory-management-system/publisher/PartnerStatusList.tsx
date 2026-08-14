@@ -1,6 +1,7 @@
 import { RefreshCw } from 'lucide-react'
 import type { PartnershipWithProgress } from '@/lib/territory-management-system/modules/assignment/types'
 import Card from '@/components/territory-management-system/dashboard/Card'
+import PartnerColorBadge from '@/components/territory-management-system/PartnerColorBadge'
 
 // Read-only status list for the workspace's own "All Partners" tab — deliberately NOT a Link
 // into another partner's assignment (unlike PartnershipCard, which this mirrors visually). That
@@ -40,7 +41,7 @@ export default function PartnerStatusList({
         <Card className="p-6 text-center text-sm text-slate-600">No partners found for this batch.</Card>
       ) : (
         <div className="space-y-3">
-          {partnerships.map((p) => {
+          {partnerships.map((p, i) => {
             const pct = p.recordCount > 0 ? Math.round((p.completedCount / p.recordCount) * 100) : 0
             const endedEarly = Boolean(p.ended_early_at)
             const done = Boolean(p.finished_at || endedEarly)
@@ -61,7 +62,10 @@ export default function PartnerStatusList({
                   <span className="absolute right-4 top-0 h-1.5 w-12 rounded-b-full bg-[#4a6da7]" aria-label="Bible Study included" />
                 )}
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold text-[#0B1B33]">{p.name}</p>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <PartnerColorBadge index={i} />
+                    <p className="truncate font-semibold text-[#0B1B33]">{p.name}</p>
+                  </span>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass}`}>{status}</span>
                 </div>
                 <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-blue-50">

@@ -7,40 +7,12 @@ import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import { OpenLocationCode } from 'open-location-code'
 import type { MapRecordPin } from '@/lib/territory-management-system/modules/assignment/queries'
+import { partnerColorFor, PARTNER_UNASSIGNED_COLOR } from '@/lib/territory-management-system/partnerColors'
 import Card from '@/components/territory-management-system/dashboard/Card'
+import PartnerColorBadge from '@/components/territory-management-system/PartnerColorBadge'
 import 'leaflet/dist/leaflet.css'
 
 const openLocationCode = new OpenLocationCode()
-
-// Fixed-order 8-hue categorical palette (light-surface steps), each with the higher-contrast
-// text color for a number rendered directly on that fill — see dotIcon. Picking colors by eye
-// produced several reds/oranges/ambers close enough in hue to read as "the same pin" on the tan
-// OSM basemap; this is this app's validated categorical set instead (dataviz skill:
-// scripts/validate_palette.js), ordered so adjacent slots clear the widest perceptual gap.
-// A map is an "all-pairs" layout — any two pins can end up next to each other, not just
-// neighbors in a fixed list — and that stricter check only clears for this palette's first 3
-// slots; past 3 (a normal day easily has more Ministry Partners than that, and the "7 partners"
-// case from the brief needs all 8), some hue pairs fall below the comfortable separation floor.
-// Rather than force a false promise ("colors alone are enough"), every marker also renders its
-// partner's own sequence number directly on the fill — the same "never color alone" principle
-// the legend and popup already apply, just closer to the pin itself where it matters most.
-const PARTNER_COLORS: { fill: string; text: string }[] = [
-  { fill: '#2a78d6', text: '#0b0b0b' }, // blue
-  { fill: '#eb6834', text: '#0b0b0b' }, // orange
-  { fill: '#1baf7a', text: '#0b0b0b' }, // aqua
-  { fill: '#eda100', text: '#0b0b0b' }, // yellow
-  { fill: '#e87ba4', text: '#0b0b0b' }, // magenta
-  { fill: '#008300', text: '#ffffff' }, // green
-  { fill: '#4a3aa7', text: '#ffffff' }, // violet
-  { fill: '#e34948', text: '#0b0b0b' }, // red
-]
-const UNASSIGNED_COLOR = '#9CA3AF'
-
-// Cycles past 8 Ministry Partners in one batch — rare, but the sequence number baked into every
-// marker (see dotIcon) still uniquely identifies each one even once colors repeat.
-function colorFor(index: number): { fill: string; text: string } {
-  return PARTNER_COLORS[index % PARTNER_COLORS.length]
-}
 
 // A plain colored circle rather than a per-color pin image — scales to any number of Ministry
 // Partners without needing a matching set of raster/SVG pin assets (contrast
@@ -191,7 +163,7 @@ export default function TodayAssignmentMap({
   // labels each pin/legend swatch: `sequence` restarts at 1 per batch, so two different
   // batches' "Partner 1" would otherwise render the same number on the map.
   const infoByPartnerId = useMemo(
-    () => new Map(partners.map((p, i) => [p.id, { ...colorFor(i), label: String(i + 1), name: p.name }])),
+    () => new Map(partners.map((p, i) => [p.id, { ...partnerColorFor(i), label: String(i + 1), name: p.name }])),
     [partners]
   )
 
@@ -209,24 +181,16 @@ export default function TodayAssignmentMap({
   return (
     <div className="space-y-3">
       <Card className="flex flex-wrap gap-x-4 gap-y-2 p-3">
-        {partners.map((p, i) => {
-          const { fill, text } = colorFor(i)
-          return (
-            <span key={p.id} className="flex items-center gap-1.5 text-xs text-slate-600">
-              <span
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold"
-                style={{ background: fill, color: text }}
-              >
-                {i + 1}
-              </span>
-              {p.name}
-            </span>
-          )
-        })}
+        {partners.map((p, i) => (
+          <span key={p.id} className="flex items-center gap-1.5 text-xs text-slate-600">
+            <PartnerColorBadge index={i} />
+            {p.name}
+          </span>
+        ))}
         <span className="flex items-center gap-1.5 text-xs text-slate-600">
           <span
             className="inline-block h-4 w-4 rounded-full border border-dashed border-white"
-            style={{ background: UNASSIGNED_COLOR, opacity: 0.6 }}
+            style={{ background: PARTNER_UNASSIGNED_COLOR, opacity: 0.6 }}
           />
           Unassigned{unassignedCount > 0 ? ` (${unassignedCount})` : ''}
         </span>
@@ -249,7 +213,7 @@ export default function TodayAssignmentMap({
             const info = pin.partnershipId ? infoByPartnerId.get(pin.partnershipId) : undefined
             const icon = info
               ? dotIcon(info.fill, info.text, info.label, false)
-              : dotIcon(UNASSIGNED_COLOR, '#0b0b0b', null, true)
+              : dotIcon(PARTNER_UNASSIGNED_COLOR, '#0b0b0b', null, true)
             return (
               <Marker key={pin.id} position={[pin.lat, pin.lng]} icon={icon}>
                 <Popup>

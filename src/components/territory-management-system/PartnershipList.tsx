@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import type { PartnershipWithProgress } from '@/lib/territory-management-system/modules/assignment/types'
 import type { PartnershipAssignedRecordSummary } from '@/lib/territory-management-system/modules/assignment/queries'
 import Card from '@/components/territory-management-system/dashboard/Card'
+import PartnerColorBadge from '@/components/territory-management-system/PartnerColorBadge'
 import { useConfirm } from '@/lib/territory-management-system/hooks/useConfirm'
 
 // Groups a flat assigned-record list by Plus Code — same address = same household, i.e. "linked
@@ -36,12 +37,21 @@ export default function PartnershipList({
   partnerships,
   onEndPartnership,
   onLoadAssignedRecords,
+  colorIndexById,
 }: {
   partnerships: PartnershipWithProgress[]
   onEndPartnership?: (partnershipId: string) => Promise<void>
   // Lazy-loaded per partnership the first time its card is tapped, not fetched upfront for every
   // partnership on the tab — see getPartnershipAssignedRecordsAction.
   onLoadAssignedRecords?: (partnershipId: string) => Promise<PartnershipAssignedRecordSummary[]>
+  // Maps a partnership id to its color/number slot (see partnerColors.ts) — passed by the Group
+  // Leader's Partners tab so a card's badge matches that same partner's pin on the Map tab,
+  // which numbers across ALL of today's batches combined, not just the one this list is
+  // currently showing (see GroupLeaderTabs). Falls back to this list's own array position when
+  // omitted (the public Progress page and the publisher workspace's "All Partners" tab, which
+  // only ever see one batch at a time anyway) — still a distinct, stable color per card, just
+  // not necessarily matching a cross-batch map only a Group Leader can see.
+  colorIndexById?: Map<string, number>
 }) {
   const [pending, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -86,7 +96,8 @@ export default function PartnershipList({
     <>
       {ConfirmDialog}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {partnerships.map((p) => {
+        {partnerships.map((p, i) => {
+          const colorIndex = colorIndexById?.get(p.id) ?? i
           const pct = p.recordCount > 0 ? Math.round((p.completedCount / p.recordCount) * 100) : 0
           // finished_at/ended_early_at (see 018_partnership_finished_at.sql) both mean "genuinely
           // done." Ending early on a zero-record ("searching a fresh territory") partnership isn't
@@ -118,19 +129,23 @@ export default function PartnershipList({
                   aria-expanded={expanded}
                   className="mb-2 flex w-full items-center justify-between gap-2 text-left"
                 >
-                  <span className="flex min-w-0 items-center gap-1">
+                  <span className="flex min-w-0 items-center gap-1.5">
                     {expanded ? (
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                     ) : (
                       <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                     )}
+                    <PartnerColorBadge index={colorIndex} />
                     <span className="truncate font-semibold text-[#0B1B33]">{p.name}</span>
                   </span>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass}`}>{status}</span>
                 </button>
               ) : (
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="font-semibold text-[#0B1B33]">{p.name}</p>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <PartnerColorBadge index={colorIndex} />
+                    <p className="truncate font-semibold text-[#0B1B33]">{p.name}</p>
+                  </span>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass}`}>{status}</span>
                 </div>
               )}
