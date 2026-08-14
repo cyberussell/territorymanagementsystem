@@ -1,6 +1,7 @@
 import { requireGroupLeader } from '@/lib/territory-management-system/modules/auth/queries'
-import { getApprovedRecordCounts, getBatchesForGroupLeaderAndDate } from '@/lib/territory-management-system/modules/assignment/queries'
+import { getApprovedRecordCounts, getBatchesForGroupLeaderAndDate, getBatchesMapRecords } from '@/lib/territory-management-system/modules/assignment/queries'
 import { listTerritories } from '@/lib/territory-management-system/modules/territory/queries'
+import { getCongregationPlusCodeAnchor } from '@/lib/territory-management-system/modules/records/queries'
 import { getBatchStats, getCombinedBatchStats, getTerritoryVisitHistory } from '@/lib/territory-management-system/modules/reports/queries'
 import { getAssignmentBatchQrDataUrl, getAssignmentBatchUrl } from '@/lib/territory-management-system/modules/assignment/qr'
 import { formatLongDate, todayInTimezone } from '@/lib/territory-management-system/modules/assignment/date'
@@ -94,6 +95,14 @@ export default async function GroupLeaderDashboardPage() {
     congregation.timezone
   )
 
+  // Map tab data: every contact record across today's own batches' territories, tagged with
+  // which (if any) of today's own partnerships holds it — batches.map(b => b.id) rather than
+  // batchViews' ids, same set, just avoids re-deriving it from the already-consumed stats.
+  const [mapRecords, congregationAnchor] = await Promise.all([
+    getBatchesMapRecords(supabase, congregation.id, [...todaysTerritoryIds], batches.map((b) => b.id)),
+    getCongregationPlusCodeAnchor(supabase, congregation.id),
+  ])
+
   return (
     <GroupLeaderTabs
       batches={batchViews}
@@ -101,6 +110,8 @@ export default async function GroupLeaderDashboardPage() {
       todaysTerritories={todaysTerritories}
       combinedStats={combinedStats}
       territoryHistory={territoryHistory}
+      mapRecords={mapRecords}
+      congregationAnchor={congregationAnchor}
     />
   )
 }

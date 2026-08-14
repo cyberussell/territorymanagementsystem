@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   BookMarked,
   BookOpen,
@@ -14,6 +15,7 @@ import {
   HelpCircle,
   Home,
   LayoutDashboard,
+  Map as MapIcon,
   Percent,
   PhoneOff,
   RefreshCw,
@@ -26,8 +28,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { BatchStats, TerritoryVisitHistoryEntry } from '@/lib/territory-management-system/modules/reports/queries'
+import type { MapRecordPin } from '@/lib/territory-management-system/modules/assignment/queries'
 import { VISIT_RESULT_LABELS } from '@/lib/territory-management-system/modules/records/schema'
 import {
+  assignRecordToPartnershipAction,
   deleteGroupLeaderAssignmentAction,
   endPartnershipAction,
   getPartnershipAssignedRecordsAction,
@@ -42,13 +46,22 @@ import OverflowAssignmentForm from '@/components/territory-management-system/Ove
 import PublisherFAQ from '@/components/territory-management-system/publisher/PublisherFAQ'
 import TerritoryVisitHistoryList from '@/components/territory-management-system/TerritoryVisitHistoryList'
 
-type Tab = 'home' | 'dashboard' | 'results' | 'progress' | 'faq'
+// Leaflet touches `window` at import time — same ssr:false dynamic import pattern as
+// ReportsView's HouseholdDistributionMap, needed here too since GroupLeaderTabs itself renders
+// server-side first.
+const TodayAssignmentMap = dynamic(() => import('@/components/territory-management-system/TodayAssignmentMap'), {
+  ssr: false,
+  loading: () => <Card className="p-10 text-center text-sm text-slate-500">Loading map…</Card>,
+})
+
+type Tab = 'home' | 'dashboard' | 'results' | 'progress' | 'map' | 'faq'
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'results', label: 'Visits', icon: ClipboardList },
   { id: 'progress', label: 'Partners', icon: Users },
+  { id: 'map', label: 'Map', icon: MapIcon },
   { id: 'faq', label: 'FAQ', icon: HelpCircle },
 ]
 
@@ -88,6 +101,8 @@ export default function GroupLeaderTabs({
   todaysTerritories,
   combinedStats,
   territoryHistory,
+  mapRecords,
+  congregationAnchor,
 }: {
   batches: BatchView[]
   activeTerritories: { id: string; name: string; barangayName: string; approvedCount: number }[]
@@ -101,6 +116,13 @@ export default function GroupLeaderTabs({
   // on the pre-assignment "no assignment yet" screen (group-leader/dashboard/page.tsx), rendered
   // here too on the Dashboard tab so it's still visible once today's assignment exists.
   territoryHistory: TerritoryVisitHistoryEntry[]
+  // Every approved, Plus-Code-having contact record across today's territories (House To House
+  // plus any Auxiliary Groups), each tagged with which partnership (if any) currently holds it —
+  // see getBatchesMapRecords. Feeds the Map tab.
+  mapRecords: MapRecordPin[]
+  // See getCongregationPlusCodeAnchor — lets TodayAssignmentMap recover a short-form Plus Code
+  // even when today's own record set has no full-form code to anchor against.
+  congregationAnchor: { lat: number; lng: number } | null
 }) {
   const [tab, setTab] = useState<Tab>('home')
   // Spins the Refresh icon for the moment between tapping it and the full page reload actually
@@ -522,6 +544,24 @@ export default function GroupLeaderTabs({
           onEndPartnership={endPartnershipAction}
           onLoadAssignedRecords={getPartnershipAssignedRecordsAction}
         />
+      )}
+
+      {tab === 'map' && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="font-semibold text-[#0B1B33]">Today&apos;s Territory Map</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Every contact record in today&apos;s assignment (House To House plus any Auxiliary Groups), colored by which Ministry
+              Partner it&apos;s assigned to. Gray pins aren&apos;t assigned yet — tap one to assign it.
+            </p>
+          </div>
+          <TodayAssignmentMap
+            records={mapRecords}
+            partners={combinedStats.partnerships.map((p) => ({ id: p.id, name: p.name }))}
+            onAssignRecord={assignRecordToPartnershipAction}
+            fallbackAnchor={congregationAnchor}
+          />
+        </div>
       )}
 
       {tab === 'faq' && <PublisherFAQ />}
