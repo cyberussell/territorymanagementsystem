@@ -138,6 +138,13 @@ export interface PartnershipWorkspace extends Partnership {
   // nav icon's badge count has something to show without navigating there first; the Search tab
   // itself always re-fetches fresh via listIncomingRecordTransferRequestsAction on open/refresh.
   incomingRequests: IncomingRecordTransferRequest[]
+  // Pending offers FROM the Group Leader of a specific unassigned record TO this partnership
+  // (see 043_record_assignment_offers.sql and the Search tab's "Offered by Your Group Leader"
+  // section) — unlike incomingRequests (a peer partner asking for a record this partnership
+  // already holds), accepting one of these is what actually adds the record to this
+  // partnership's own list. Same "fetched up front for the badge, re-fetched fresh on open" shape
+  // as incomingRequests, via listPendingOffersAction.
+  pendingOffers: RecordAssignmentOffer[]
   // A congregation-wide reference point (see getCongregationPlusCodeAnchor) letting
   // HouseholdDistributionMap recover a short/local-form Plus Code even when this partnership's
   // own record set (assigned records, or a freshly-chosen search area) has no full-form code of
@@ -166,5 +173,13 @@ export interface IncomingRecordTransferRequest {
   residentName: string
   address: string
   requestingPartnershipName: string
+  createdAt: string
+}
+
+export interface RecordAssignmentOffer {
+  id: string
+  recordId: string
+  residentName: string
+  address: string
   createdAt: string
 }

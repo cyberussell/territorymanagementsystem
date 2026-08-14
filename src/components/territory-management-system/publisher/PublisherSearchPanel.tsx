@@ -3,11 +3,13 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { RefreshCw, Search as SearchIcon } from 'lucide-react'
-import type { IncomingRecordTransferRequest, RecordSearchResult } from '@/lib/territory-management-system/modules/assignment/types'
+import type { IncomingRecordTransferRequest, RecordAssignmentOffer, RecordSearchResult } from '@/lib/territory-management-system/modules/assignment/types'
 import {
   claimUnassignedRecordAction,
   listIncomingRecordTransferRequestsAction,
+  listPendingOffersAction,
   requestRecordTransferAction,
+  respondToRecordAssignmentOfferAction,
   respondToRecordTransferRequestAction,
   searchTodaysRecordsAction,
 } from '@/app/tms/actions/publisher'
@@ -28,11 +30,18 @@ export default function PublisherSearchPanel({
   isOverflow,
   incomingRequests,
   onIncomingRequestsChange,
+  pendingOffers,
+  onPendingOffersChange,
 }: {
   partnershipToken: string
   isOverflow: boolean
   incomingRequests: IncomingRecordTransferRequest[]
   onIncomingRequestsChange: (requests: IncomingRecordTransferRequest[]) => void
+  // Records the Group Leader has manually offered this partnership (see
+  // 043_record_assignment_offers.sql) — unlike incomingRequests (a peer partner asking for a
+  // record this partnership already holds), accepting one of these adds it fresh.
+  pendingOffers: RecordAssignmentOffer[]
+  onPendingOffersChange: (offers: RecordAssignmentOffer[]) => void
 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<RecordSearchResult[] | null>(null)
@@ -43,6 +52,8 @@ export default function PublisherSearchPanel({
   const [claiming, setClaiming] = useState(false)
   const [refreshingIncoming, setRefreshingIncoming] = useState(false)
   const [respondingId, setRespondingId] = useState<string | null>(null)
+  const [refreshingOffers, setRefreshingOffers] = useState(false)
+  const [respondingOfferId, setRespondingOfferId] = useState<string | null>(null)
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -121,12 +132,89 @@ export default function PublisherSearchPanel({
     }
   }
 
+  async function handleRefreshOffers() {
+    setRefreshingOffers(true)
+    try {
+      const offers = await listPendingOffersAction(partnershipToken)
+      onPendingOffersChange(offers)
+    } finally {
+      setRefreshingOffers(false)
+    }
+  }
+
+  async function handleRespondOffer(offerId: string, decision: 'accepted' | 'declined') {
+    setRespondingOfferId(offerId)
+    try {
+      const result = await respondToRecordAssignmentOfferAction(partnershipToken, offerId, decision)
+      if (result.error && result.error !== 'SAVED') {
+        setRespondingOfferId(null)
+        toast.error(result.error)
+        return
+      }
+      if (decision === 'declined') {
+        toast.success('Offer declined.')
+        onPendingOffersChange(pendingOffers.filter((o) => o.id !== offerId))
+        setRespondingOfferId(null)
+        return
+      }
+      // Same full-reload reasoning as handleClaim above — the newly-accepted record's full
+      // detail only ever loads from the workspace's initial server-rendered fetch.
+      window.location.href = `${window.location.pathname}?view=list`
+    } catch (e) {
+      setRespondingOfferId(null)
+      throw e
+    }
+  }
+
   // Mirrors the server-side rule in createRecordTransferRequest — a UI reflection, not the real
   // gate (that's enforced again on submit regardless of what this button shows).
   const blockedByGroupType = (r: RecordSearchResult) => isOverflow && r.assignedTo && !r.assignedTo.isOverflow
 
   return (
     <div className="space-y-6">
+      {pendingOffers.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-semibold text-[#0B1B33]">Offered by Your Group Leader</h2>
+            <button
+              type="button"
+              onClick={handleRefreshOffers}
+              disabled={refreshingOffers}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-100 bg-white px-3 py-1.5 text-xs font-semibold text-[#2563EB] transition hover:border-[#38BDF8]/40 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshingOffers ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+          <div className="space-y-2">
+            {pendingOffers.map((o) => (
+              <Card key={o.id} className="p-3">
+                <p className="truncate text-sm font-medium text-[#0B1B33]">{o.residentName || o.address || 'Unlabeled record'}</p>
+                <p className="mt-0.5 text-xs text-slate-500">Your Group Leader offered you this record</p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRespondOffer(o.id, 'declined')}
+                    disabled={respondingOfferId === o.id}
+                    className="flex-1 rounded-lg border border-blue-100 bg-white py-1.5 text-xs font-semibold text-slate-500 transition hover:border-[#38BDF8]/40 disabled:opacity-50"
+                  >
+                    Decline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRespondOffer(o.id, 'accepted')}
+                    disabled={respondingOfferId === o.id}
+                    className="flex-1 rounded-lg bg-gradient-to-r from-[#2563EB] to-[#38BDF8] py-1.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                  >
+                    {respondingOfferId === o.id ? 'Working…' : 'Accept'}
+                  </button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {incomingRequests.length > 0 && (
         <div>
           <div className="mb-2 flex items-center justify-between gap-2">

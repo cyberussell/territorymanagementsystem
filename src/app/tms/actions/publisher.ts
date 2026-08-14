@@ -37,12 +37,14 @@ import {
   getPartnershipByToken,
   getSearchScopeForPartnership,
   listIncomingRecordTransferRequests,
+  listPendingOffersForPartnership,
   lockPartnershipSearchBlocks,
   markPartnershipRecordCompleted,
   movePartnershipRecord,
   partnershipHasRecord,
   releasePartnership,
   renamePartnership,
+  resolveRecordAssignmentOffer,
   resolveRecordTransferRequest,
   searchTodaysAssignedRecords,
   submitPartnershipNote,
@@ -51,6 +53,7 @@ import {
 import type {
   IncomingRecordTransferRequest,
   PartnershipWithProgress,
+  RecordAssignmentOffer,
   RecordSearchResult,
 } from '@/lib/territory-management-system/modules/assignment/types'
 import {
@@ -872,6 +875,37 @@ export async function respondToRecordTransferRequestAction(
   } catch (e) {
     await logError(partnership.congregation_id, 'respondToRecordTransferRequestAction', e)
     return { error: e instanceof Error ? e.message : 'Could not respond to the request.' }
+  }
+  return { error: 'SAVED' }
+}
+
+// Manual "Refresh" for the Search tab's own "Offered by Your Group Leader" section — same "plain
+// read, not queued" reasoning as listIncomingRecordTransferRequestsAction above.
+export async function listPendingOffersAction(partnershipToken: string): Promise<RecordAssignmentOffer[]> {
+  const supabase = createAdminSupabase()
+  const partnership = await getPartnershipByToken(supabase, partnershipToken)
+  if (!partnership) return []
+  return listPendingOffersForPartnership(supabase, partnership.id)
+}
+
+// Accept or decline a Group-Leader-initiated offer — re-verifies partnershipToken resolves to
+// the offer's own target partnership before acting (never trusts a client-supplied offerId/
+// partnership pairing outright), same shape as respondToRecordTransferRequestAction above.
+export async function respondToRecordAssignmentOfferAction(
+  partnershipToken: string,
+  offerId: string,
+  decision: 'accepted' | 'declined'
+): Promise<ActionResult> {
+  const supabase = createAdminSupabase()
+  const partnership = await getPartnershipByToken(supabase, partnershipToken)
+  if (!partnership) return { error: 'This partnership link is no longer valid.' }
+
+  try {
+    const result = await resolveRecordAssignmentOffer(supabase, partnership.congregation_id, offerId, partnership.id, decision)
+    if ('error' in result) return { error: result.error }
+  } catch (e) {
+    await logError(partnership.congregation_id, 'respondToRecordAssignmentOfferAction', e)
+    return { error: e instanceof Error ? e.message : 'Could not respond to the offer.' }
   }
   return { error: 'SAVED' }
 }

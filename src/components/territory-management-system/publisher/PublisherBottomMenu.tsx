@@ -42,9 +42,11 @@ export default function PublisherBottomMenu({
   // for records with, or to receive incoming requests as.
   onGoToSearch: () => void
   showAddedRecords: boolean
-  // Pending "Ask" requests for records this partnership currently holds — shown as a badge on
-  // the Search tab so there's some chance of noticing one without navigating there first (no
-  // push notifications in this offline-first app).
+  // Combined count of pending "Ask" requests for records this partnership currently holds AND
+  // pending offers the Group Leader has sent this partnership (see
+  // 043_record_assignment_offers.sql) — shown as one badge on the Search tab so there's some
+  // chance of noticing either without navigating there first (no push notifications in this
+  // offline-first app).
   incomingRequestCount?: number
 }) {
   const items: {

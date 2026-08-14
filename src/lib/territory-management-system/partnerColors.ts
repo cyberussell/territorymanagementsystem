@@ -30,6 +30,14 @@ export const PARTNER_COLORS: { fill: string; text: string }[] = [
 // partner's own color can never be confused with the unassigned state.
 export const PARTNER_UNASSIGNED_COLOR = '#9CA3AF'
 
+// Reserved for "offered to a partner, awaiting their accept/decline" — a status, not an
+// identity, so it deliberately borrows this app's status-warning hue rather than a categorical
+// slot (a pending offer isn't "which partner," it's "what state is this pin in," same
+// distinction the dataviz skill draws between categorical and status color). Gray (unassigned)
+// vs. amber (offer pending) is a plain two-way distinction, not an all-pairs identity problem, so
+// no in-marker number is needed here the way PARTNER_COLORS needs one past 3 partners.
+export const PENDING_OFFER_COLOR = '#fab219'
+
 // Cycles past 8 Ministry Partners in one batch — rare, but each card/pin's own number (see
 // PartnerColorBadge/dotIcon) still uniquely identifies it even once colors repeat.
 export function partnerColorFor(index: number): { fill: string; text: string } {

@@ -1514,6 +1514,8 @@ export default function PublisherWorkspaceApp({
             isOverflow={workspace.batch.is_overflow}
             incomingRequests={workspace.incomingRequests}
             onIncomingRequestsChange={(incomingRequests) => setWorkspace((w) => ({ ...w, incomingRequests }))}
+            pendingOffers={workspace.pendingOffers}
+            onPendingOffersChange={(pendingOffers) => setWorkspace((w) => ({ ...w, pendingOffers }))}
           />
         )}
       </div>
@@ -1531,7 +1533,7 @@ export default function PublisherWorkspaceApp({
         onGoToPartners={() => setView({ name: 'partners' })}
         onGoToRecords={() => setView({ name: 'list' })}
         onGoToSearch={() => setView({ name: 'search' })}
-        incomingRequestCount={workspace.incomingRequests.length}
+        incomingRequestCount={workspace.incomingRequests.length + workspace.pendingOffers.length}
         onGoToAddedRecords={() => setView({ name: 'addedRecords' })}
         showAddedRecords={!readOnly}
       />
