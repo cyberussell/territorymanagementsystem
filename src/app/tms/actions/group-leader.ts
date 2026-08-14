@@ -5,10 +5,13 @@ import { revalidatePath } from 'next/cache'
 import { requireGroupLeader } from '@/lib/territory-management-system/modules/auth/queries'
 import { createAssignmentSchema } from '@/lib/territory-management-system/modules/assignment/schema'
 import {
+  claimUnassignedRecord,
   createAssignment,
   deleteBatch,
+  getBatchById,
   getBatchesForGroupLeaderAndDate,
   getPartnershipAssignedRecordSummaries,
+  getPartnershipById,
   terminatePartnershipEarly,
   type PartnershipAssignedRecordSummary,
 } from '@/lib/territory-management-system/modules/assignment/queries'
@@ -152,4 +155,28 @@ export async function endPartnershipAction(partnershipId: string): Promise<void>
 export async function getPartnershipAssignedRecordsAction(partnershipId: string): Promise<PartnershipAssignedRecordSummary[]> {
   const { supabase } = await requireGroupLeader()
   return getPartnershipAssignedRecordSummaries(supabase, partnershipId)
+}
+
+// Individually assigns one still-unassigned contact record (a gray pin on the Map tab) to a
+// specific Ministry Partner — the manual complement to the bulk assignment engine, for whatever
+// calculateAssignment left over past a partnership's maxPerPartnership cap, or a fresh
+// zero-record overflow territory nobody's claimed into yet. Reuses claimUnassignedRecord, the
+// same "instant claim, no approval needed" mechanism the publisher Search tab already uses —
+// it re-verifies server-side that the record is still actually unassigned. Same "never rely on
+// RLS alone" ownership re-check as endPartnershipAction/deleteGroupLeaderAssignmentAction: the
+// destination partnership must belong to a batch this Group Leader owns today (or a legacy,
+// creator-less batch).
+export async function assignRecordToPartnershipAction(recordId: string, partnershipId: string): Promise<{ error?: string }> {
+  const { supabase, congregation, userId } = await requireGroupLeader()
+  const partnership = await getPartnershipById(supabase, partnershipId)
+  if (!partnership) return { error: 'Ministry partner not found.' }
+  const batch = await getBatchById(supabase, partnership.batch_id)
+  if (!batch || (batch.created_by !== userId && batch.created_by !== null)) {
+    return { error: 'You can only assign records to your own ministry partners.' }
+  }
+
+  const result = await claimUnassignedRecord(supabase, congregation.id, recordId, partnershipId)
+  if ('error' in result) return { error: result.error }
+  revalidatePath('/tms/group-leader/dashboard')
+  return {}
 }

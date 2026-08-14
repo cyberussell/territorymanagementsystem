@@ -144,6 +144,66 @@ async function getTerritoryIdsInUseToday(
   return new Set((links ?? []).map((l) => l.territory_id as string))
 }
 
+export interface MapRecordPin {
+  id: string
+  address: string
+  residentName: string
+  plusCode: string
+  territoryName: string
+  // Which of the given batches' partnerships currently holds this record, if any — null means
+  // unassigned (e.g. left over past calculateAssignment's per-partnership cap, or a fresh
+  // zero-record overflow territory nobody's claimed into yet). Group Leader's Map tab (see
+  // TodayAssignmentMap) colors a pin by this and grays out null ones.
+  partnershipId: string | null
+}
+
+// Every approved, Plus-Code-having record across the given territories, with which (if any) of
+// the given batches' partnerships currently holds it — feeds the Group Leader's "Map" tab, so
+// they can see today's whole assignment at a glance and individually assign whatever's still
+// unassigned. territoryIds/batchIds are the caller's own today's-batches union (see
+// group-leader/dashboard/page.tsx), never trusted client input, so no ownership re-check is
+// needed here the way the mutation below (assignRecordToPartnershipAction) requires.
+export async function getBatchesMapRecords(
+  supabase: SupabaseClient,
+  congregationId: string,
+  territoryIds: string[],
+  batchIds: string[]
+): Promise<MapRecordPin[]> {
+  if (territoryIds.length === 0) return []
+  const { data: records } = await supabase
+    .from('territory_records')
+    // !territory_id required — same ambiguous-embed hazard as getApprovedRecordLocations
+    // (territory_records has multiple FKs to territories).
+    .select('id, address, resident_name, plus_code, territory:territories!territory_id(name)')
+    .eq('congregation_id', congregationId)
+    .in('territory_id', territoryIds)
+    .eq('status', 'approved')
+    .not('plus_code', 'is', null)
+
+  const pins: MapRecordPin[] = (
+    (records ?? []) as unknown as { id: string; address: string; resident_name: string; plus_code: string | null; territory: { name: string } | null }[]
+  )
+    .filter((r): r is typeof r & { plus_code: string } => Boolean(r.plus_code))
+    .map((r) => ({
+      id: r.id,
+      address: r.address,
+      residentName: r.resident_name,
+      plusCode: r.plus_code,
+      territoryName: r.territory?.name ?? '',
+      partnershipId: null,
+    }))
+  if (pins.length === 0 || batchIds.length === 0) return pins
+
+  const { data: partnerships } = await supabase.from('partnerships').select('id').in('batch_id', batchIds)
+  const partnershipIds = (partnerships ?? []).map((p) => p.id as string)
+  if (partnershipIds.length === 0) return pins
+
+  const { data: prRows } = await supabase.from('partnership_records').select('record_id, partnership_id').in('partnership_id', partnershipIds)
+  const partnershipIdByRecordId = new Map((prRows ?? []).map((r) => [r.record_id as string, r.partnership_id as string]))
+
+  return pins.map((p) => ({ ...p, partnershipId: partnershipIdByRecordId.get(p.id) ?? null }))
+}
+
 export interface CreateAssignmentResult {
   batchId: string
   unassignedCount: number
