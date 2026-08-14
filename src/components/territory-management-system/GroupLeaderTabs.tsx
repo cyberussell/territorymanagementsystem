@@ -31,10 +31,11 @@ import type { BatchStats, TerritoryVisitHistoryEntry } from '@/lib/territory-man
 import type { MapRecordPin } from '@/lib/territory-management-system/modules/assignment/queries'
 import { VISIT_RESULT_LABELS } from '@/lib/territory-management-system/modules/records/schema'
 import {
-  assignRecordToPartnershipAction,
+  cancelRecordAssignmentOfferAction,
   deleteGroupLeaderAssignmentAction,
   endPartnershipAction,
   getPartnershipAssignedRecordsAction,
+  offerRecordToPartnershipAction,
 } from '@/app/tms/actions/group-leader'
 import StatCard from '@/components/territory-management-system/dashboard/StatCard'
 import Card from '@/components/territory-management-system/dashboard/Card'
@@ -556,13 +557,15 @@ export default function GroupLeaderTabs({
             <h2 className="font-semibold text-[#0B1B33]">Today&apos;s Territory Map</h2>
             <p className="mt-1 text-sm text-slate-500">
               Every contact record in today&apos;s assignment (House To House plus any Auxiliary Groups), colored by which Ministry
-              Partner it&apos;s assigned to. Gray pins aren&apos;t assigned yet — tap one to assign it.
+              Partner it&apos;s assigned to. Gray pins aren&apos;t assigned yet — tap one to offer it to a partner of your choice; they
+              still need to accept it. Amber pins are already offered and awaiting a response.
             </p>
           </div>
           <TodayAssignmentMap
             records={mapRecords}
             partners={combinedStats.partnerships.map((p) => ({ id: p.id, name: p.name }))}
-            onAssignRecord={assignRecordToPartnershipAction}
+            onOfferRecord={offerRecordToPartnershipAction}
+            onCancelOffer={cancelRecordAssignmentOfferAction}
             fallbackAnchor={congregationAnchor}
           />
         </div>

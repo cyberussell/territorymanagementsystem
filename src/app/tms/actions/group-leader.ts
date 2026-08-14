@@ -5,8 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { requireGroupLeader } from '@/lib/territory-management-system/modules/auth/queries'
 import { createAssignmentSchema } from '@/lib/territory-management-system/modules/assignment/schema'
 import {
-  claimUnassignedRecord,
+  cancelRecordAssignmentOffer,
   createAssignment,
+  createRecordAssignmentOffer,
   deleteBatch,
   getBatchById,
   getBatchesForGroupLeaderAndDate,
@@ -157,26 +158,40 @@ export async function getPartnershipAssignedRecordsAction(partnershipId: string)
   return getPartnershipAssignedRecordSummaries(supabase, partnershipId)
 }
 
-// Individually assigns one still-unassigned contact record (a gray pin on the Map tab) to a
-// specific Ministry Partner — the manual complement to the bulk assignment engine, for whatever
+// Offers one still-unassigned contact record (a gray pin on the Map tab) to a specific Ministry
+// Partner — the manual complement to the bulk assignment engine, for whatever
 // calculateAssignment left over past a partnership's maxPerPartnership cap, or a fresh
-// zero-record overflow territory nobody's claimed into yet. Reuses claimUnassignedRecord, the
-// same "instant claim, no approval needed" mechanism the publisher Search tab already uses —
-// it re-verifies server-side that the record is still actually unassigned. Same "never rely on
-// RLS alone" ownership re-check as endPartnershipAction/deleteGroupLeaderAssignmentAction: the
-// destination partnership must belong to a batch this Group Leader owns today (or a legacy,
-// creator-less batch).
-export async function assignRecordToPartnershipAction(recordId: string, partnershipId: string): Promise<{ error?: string }> {
+// zero-record overflow territory nobody's claimed into yet. Works for a partnership from either
+// kind of batch today (House To House or Auxiliary/overflow) — createRecordAssignmentOffer never
+// restricts by group type, since an unassigned record has no current holder to "poach" from.
+// Deliberately NOT an instant assignment (confirmed with Russell): the target partnership must
+// accept or decline before it actually attaches — see createRecordAssignmentOffer/
+// resolveRecordAssignmentOffer. Same "never rely on RLS alone" ownership re-check as
+// endPartnershipAction/deleteGroupLeaderAssignmentAction: the destination partnership must belong
+// to a batch this Group Leader owns today (or a legacy, creator-less batch).
+export async function offerRecordToPartnershipAction(recordId: string, partnershipId: string): Promise<{ error?: string }> {
   const { supabase, congregation, userId } = await requireGroupLeader()
   const partnership = await getPartnershipById(supabase, partnershipId)
   if (!partnership) return { error: 'Ministry partner not found.' }
   const batch = await getBatchById(supabase, partnership.batch_id)
   if (!batch || (batch.created_by !== userId && batch.created_by !== null)) {
-    return { error: 'You can only assign records to your own ministry partners.' }
+    return { error: 'You can only offer records to your own ministry partners.' }
   }
 
-  const result = await claimUnassignedRecord(supabase, congregation.id, recordId, partnershipId)
+  const result = await createRecordAssignmentOffer(supabase, congregation.id, recordId, partnershipId, userId)
   if ('error' in result) return { error: result.error }
   revalidatePath('/tms/group-leader/dashboard')
   return {}
+}
+
+// Withdraws a still-pending offer from the Map tab — e.g. the Group Leader changed their mind
+// about who to offer a record to before the partner responded. No ownership re-check needed
+// beyond RLS itself (group_leader's "manage" policy on record_assignment_offers is already
+// congregation-scoped, see 043_record_assignment_offers.sql) — unlike the mutations above, this
+// isn't reaching into another table (partnerships/assignment_batches) with its own separate
+// ownership model to re-verify.
+export async function cancelRecordAssignmentOfferAction(offerId: string): Promise<void> {
+  const { supabase } = await requireGroupLeader()
+  await cancelRecordAssignmentOffer(supabase, offerId)
+  revalidatePath('/tms/group-leader/dashboard')
 }

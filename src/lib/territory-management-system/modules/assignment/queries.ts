@@ -12,6 +12,7 @@ import type {
   PartnershipRecordDetail,
   PartnershipWithProgress,
   PartnershipWorkspace,
+  RecordAssignmentOffer,
   RecordSearchResult,
   RecordTransferRequestError,
 } from './types'
@@ -155,14 +156,20 @@ export interface MapRecordPin {
   // zero-record overflow territory nobody's claimed into yet). Group Leader's Map tab (see
   // TodayAssignmentMap) colors a pin by this and grays out null ones.
   partnershipId: string | null
+  // A still-pending Group-Leader-initiated offer awaiting that partner's accept/decline (see
+  // createRecordAssignmentOffer) — only ever set when partnershipId is null; an accepted offer
+  // becomes a real assignment and partnershipId takes over instead. Lets the Map tab tell
+  // "genuinely unassigned" apart from "offered, awaiting response" at a glance.
+  pendingOffer: { offerId: string; partnershipId: string; partnershipName: string } | null
 }
 
 // Every approved, Plus-Code-having record across the given territories, with which (if any) of
-// the given batches' partnerships currently holds it — feeds the Group Leader's "Map" tab, so
-// they can see today's whole assignment at a glance and individually assign whatever's still
-// unassigned. territoryIds/batchIds are the caller's own today's-batches union (see
-// group-leader/dashboard/page.tsx), never trusted client input, so no ownership re-check is
-// needed here the way the mutation below (assignRecordToPartnershipAction) requires.
+// the given batches' partnerships currently holds it (or has a pending offer out to it) — feeds
+// the Group Leader's "Map" tab, so they can see today's whole assignment at a glance and
+// individually offer whatever's still unassigned to a chosen partner. territoryIds/batchIds are
+// the caller's own today's-batches union (see group-leader/dashboard/page.tsx), never trusted
+// client input, so no ownership re-check is needed here the way the mutation below
+// (offerRecordToPartnershipAction) requires.
 export async function getBatchesMapRecords(
   supabase: SupabaseClient,
   congregationId: string,
@@ -191,6 +198,7 @@ export async function getBatchesMapRecords(
       plusCode: r.plus_code,
       territoryName: r.territory?.name ?? '',
       partnershipId: null,
+      pendingOffer: null,
     }))
   if (pins.length === 0 || batchIds.length === 0) return pins
 
@@ -198,10 +206,149 @@ export async function getBatchesMapRecords(
   const partnershipIds = (partnerships ?? []).map((p) => p.id as string)
   if (partnershipIds.length === 0) return pins
 
-  const { data: prRows } = await supabase.from('partnership_records').select('record_id, partnership_id').in('partnership_id', partnershipIds)
+  const [{ data: prRows }, pendingOffersByRecordId] = await Promise.all([
+    supabase.from('partnership_records').select('record_id, partnership_id').in('partnership_id', partnershipIds),
+    listPendingOffersForBatches(supabase, batchIds),
+  ])
   const partnershipIdByRecordId = new Map((prRows ?? []).map((r) => [r.record_id as string, r.partnership_id as string]))
 
-  return pins.map((p) => ({ ...p, partnershipId: partnershipIdByRecordId.get(p.id) ?? null }))
+  return pins.map((p) => {
+    const partnershipId = partnershipIdByRecordId.get(p.id) ?? null
+    return { ...p, partnershipId, pendingOffer: partnershipId ? null : (pendingOffersByRecordId.get(p.id) ?? null) }
+  })
+}
+
+// Creates (or replaces) a pending offer of an unassigned record to a specific Ministry Partner —
+// the Group Leader's manual complement to the bulk assignment engine, for whatever
+// calculateAssignment left over past a partnership's maxPerPartnership cap. Unlike
+// claimUnassignedRecord (an instant, no-approval claim a publisher makes for themselves), this
+// requires the target partnership to accept or decline (see resolveRecordAssignmentOffer) before
+// the record actually attaches to partnership_records — the Group Leader is choosing on someone
+// else's behalf, not claiming for their own work, so the partner keeps the final say. Re-verifies
+// the record is still actually unassigned server-side, and replaces (not stacks) any existing
+// pending offer for the same record — a Group Leader redirecting an offer to a different partner
+// before the first one responds is a normal change of mind, not a race to prevent. Works for a
+// partnership from either kind of batch (House To House or Auxiliary/overflow) — an unassigned
+// record has no current holder to "poach" from, so the cross-group restriction
+// createRecordTransferRequest enforces for peer-to-peer "Ask" requests doesn't apply here.
+export async function createRecordAssignmentOffer(
+  supabase: SupabaseClient,
+  congregationId: string,
+  recordId: string,
+  partnershipId: string,
+  offeredBy: string
+): Promise<{ error: string } | { ok: true }> {
+  const { data: existingAssignment } = await supabase.from('partnership_records').select('id').eq('record_id', recordId).maybeSingle()
+  if (existingAssignment) return { error: 'This record is already assigned to someone today.' }
+
+  const { error: deleteError } = await supabase.from('record_assignment_offers').delete().eq('record_id', recordId).eq('status', 'pending')
+  if (deleteError) throw deleteError
+
+  const { error } = await supabase.from('record_assignment_offers').insert({
+    congregation_id: congregationId,
+    record_id: recordId,
+    offered_to_partnership_id: partnershipId,
+    offered_by: offeredBy,
+  })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
+// Withdraws a still-pending offer — e.g. the Group Leader changed their mind before the partner
+// responded. A no-op if it's already been accepted/declined (nothing left to withdraw).
+export async function cancelRecordAssignmentOffer(supabase: SupabaseClient, offerId: string): Promise<void> {
+  const { error } = await supabase.from('record_assignment_offers').delete().eq('id', offerId).eq('status', 'pending')
+  if (error) throw error
+}
+
+// Every still-pending offer across the given batches' partnerships, keyed by record id — feeds
+// getBatchesMapRecords above so an already-offered (but not yet accepted) unassigned pin reads
+// differently from a plain unoffered one.
+async function listPendingOffersForBatches(
+  supabase: SupabaseClient,
+  batchIds: string[]
+): Promise<Map<string, { offerId: string; partnershipId: string; partnershipName: string }>> {
+  if (batchIds.length === 0) return new Map()
+  const { data: partnerships } = await supabase.from('partnerships').select('id, name').in('batch_id', batchIds)
+  const partnershipRows = (partnerships ?? []) as { id: string; name: string }[]
+  const partnershipIds = partnershipRows.map((p) => p.id)
+  if (partnershipIds.length === 0) return new Map()
+  const nameById = new Map(partnershipRows.map((p) => [p.id, p.name]))
+
+  const { data: offers } = await supabase
+    .from('record_assignment_offers')
+    .select('id, record_id, offered_to_partnership_id')
+    .eq('status', 'pending')
+    .in('offered_to_partnership_id', partnershipIds)
+
+  const result = new Map<string, { offerId: string; partnershipId: string; partnershipName: string }>()
+  for (const row of (offers ?? []) as { id: string; record_id: string; offered_to_partnership_id: string }[]) {
+    result.set(row.record_id, {
+      offerId: row.id,
+      partnershipId: row.offered_to_partnership_id,
+      partnershipName: nameById.get(row.offered_to_partnership_id) ?? 'Ministry Partner',
+    })
+  }
+  return result
+}
+
+// Pending offers waiting on THIS partnership's own response — the publisher-facing "Offered by
+// Your Group Leader" list (see PublisherSearchPanel), fetched up front by getPartnershipByToken
+// same as incomingRequests, and manually re-fetchable via listPendingOffersAction.
+export async function listPendingOffersForPartnership(supabase: SupabaseClient, partnershipId: string): Promise<RecordAssignmentOffer[]> {
+  const { data } = await supabase
+    .from('record_assignment_offers')
+    .select('id, created_at, record:territory_records(id, resident_name, address)')
+    .eq('offered_to_partnership_id', partnershipId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  return (
+    (data ?? []) as unknown as Array<{
+      id: string
+      created_at: string
+      record: { id: string; resident_name: string; address: string } | null
+    }>
+  )
+    .filter((r) => r.record !== null)
+    .map((r) => ({ id: r.id, recordId: r.record!.id, residentName: r.record!.resident_name, address: r.record!.address, createdAt: r.created_at }))
+}
+
+export interface RecordAssignmentOfferError {
+  error: string
+}
+
+// Approves or declines an offer from the Group Leader. Re-verifies the offer still belongs to
+// this partnership and is still pending, and — on accept — reuses claimUnassignedRecord, which
+// re-verifies the record is still actually unassigned before attaching it (defensive: e.g. the
+// Group Leader could have separately regenerated the whole assignment in the moments between
+// offering and this response) — same "never trust a snapshot, re-check server-side" rule as
+// resolveRecordTransferRequest.
+export async function resolveRecordAssignmentOffer(
+  supabase: SupabaseClient,
+  congregationId: string,
+  offerId: string,
+  partnershipId: string,
+  decision: 'accepted' | 'declined'
+): Promise<RecordAssignmentOfferError | { ok: true }> {
+  const { data: offer } = await supabase
+    .from('record_assignment_offers')
+    .select('record_id, status')
+    .eq('id', offerId)
+    .eq('offered_to_partnership_id', partnershipId)
+    .maybeSingle()
+  if (!offer || offer.status !== 'pending') return { error: 'This offer is no longer pending.' }
+
+  if (decision === 'accepted') {
+    const claimed = await claimUnassignedRecord(supabase, congregationId, offer.record_id, partnershipId)
+    if ('error' in claimed) return claimed
+  }
+
+  const { error } = await supabase
+    .from('record_assignment_offers')
+    .update({ status: decision, resolved_at: new Date().toISOString() })
+    .eq('id', offerId)
+  if (error) throw error
+  return { ok: true }
 }
 
 export interface CreateAssignmentResult {
@@ -728,6 +875,7 @@ export async function getPartnershipByToken(supabase: SupabaseClient, claimToken
   const batchPartnerships = batchSummary?.partnerships ?? []
   const congregationAnchor = await getCongregationPlusCodeAnchor(supabase, partnership.congregation_id)
   const incomingRequests = await listIncomingRecordTransferRequests(supabase, partnership.id)
+  const pendingOffers = await listPendingOffersForPartnership(supabase, partnership.id)
 
   return {
     ...(partnership as Partnership),
@@ -744,6 +892,7 @@ export async function getPartnershipByToken(supabase: SupabaseClient, claimToken
     searchScopeBlockPartners,
     batchPartnerships,
     incomingRequests,
+    pendingOffers,
     congregationAnchor,
   }
 }

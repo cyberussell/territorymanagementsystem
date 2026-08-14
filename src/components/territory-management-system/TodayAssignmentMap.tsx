@@ -7,7 +7,7 @@ import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import { OpenLocationCode } from 'open-location-code'
 import type { MapRecordPin } from '@/lib/territory-management-system/modules/assignment/queries'
-import { partnerColorFor, PARTNER_UNASSIGNED_COLOR } from '@/lib/territory-management-system/partnerColors'
+import { partnerColorFor, PARTNER_UNASSIGNED_COLOR, PENDING_OFFER_COLOR } from '@/lib/territory-management-system/partnerColors'
 import Card from '@/components/territory-management-system/dashboard/Card'
 import PartnerColorBadge from '@/components/territory-management-system/PartnerColorBadge'
 import 'leaflet/dist/leaflet.css'
@@ -18,10 +18,10 @@ const openLocationCode = new OpenLocationCode()
 // Partners without needing a matching set of raster/SVG pin assets (contrast
 // HouseholdDistributionMap's fixed blue/red pins). The partner's own sequence number sits
 // centered on the fill (see PARTNER_COLORS' comment on why color alone isn't a safe enough
-// signal here) — unassigned pins carry no number, just the dashed gray ring, since there's no
-// partner to label them with.
-function dotIcon(color: string, textColor: string, label: string | null, unassigned: boolean): L.DivIcon {
-  const style = unassigned
+// signal here) — unassigned and offer-pending pins carry no number, just a dashed ring (gray vs.
+// amber — see PENDING_OFFER_COLOR), since there's no single partner to label them with.
+function dotIcon(color: string, textColor: string, label: string | null, dashed: boolean): L.DivIcon {
+  const style = dashed
     ? `background:${color};opacity:0.6;border:2px dashed #ffffff;`
     : `background:${color};border:2px solid #ffffff;`
   const numeral = label
@@ -90,57 +90,90 @@ interface PartnerInfo {
   name: string
 }
 
-function AssignPopupBody({
+// Covers both the "genuinely unassigned" and "already offered, awaiting response" states for one
+// pin — re-offering (picking a different partner while pin.pendingOffer is set) replaces the
+// existing offer server-side (see createRecordAssignmentOffer), so this never needs to
+// distinguish "first offer" from "redirect" beyond the button label and the added Cancel button.
+function OfferPopupBody({
   pin,
   partners,
-  onAssign,
+  onOffer,
+  onCancel,
 }: {
   pin: Pin
   partners: PartnerInfo[]
-  onAssign: (recordId: string, partnershipId: string) => Promise<{ error?: string }>
+  onOffer: (recordId: string, partnershipId: string) => Promise<{ error?: string }>
+  onCancel: (offerId: string) => Promise<void>
 }) {
   const router = useRouter()
-  const [selected, setSelected] = useState(partners[0]?.id ?? '')
+  const [selected, setSelected] = useState(pin.pendingOffer?.partnershipId ?? partners[0]?.id ?? '')
   const [pending, startTransition] = useTransition()
 
-  function handleAssign() {
+  function handleOffer() {
     if (!selected) return
     startTransition(async () => {
-      const result = await onAssign(pin.id, selected)
+      const result = await onOffer(pin.id, selected)
       if (result.error) toast.error(result.error)
       else {
-        toast.success('Assigned.')
+        toast.success('Offer sent — awaiting the partner’s response.')
         router.refresh()
       }
     })
   }
 
+  function handleCancel() {
+    const offerId = pin.pendingOffer?.offerId
+    if (!offerId) return
+    startTransition(async () => {
+      await onCancel(offerId)
+      toast.success('Offer withdrawn.')
+      router.refresh()
+    })
+  }
+
   if (partners.length === 0) {
-    return <p className="mt-1 text-slate-500">No Ministry Partners available to assign to yet.</p>
+    return <p className="mt-1 text-slate-500">No Ministry Partners available to offer this to yet.</p>
   }
 
   return (
-    <div className="mt-2 flex items-center gap-1.5">
-      <select
-        value={selected}
-        onChange={(e) => setSelected(e.target.value)}
-        disabled={pending}
-        className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-1 text-xs"
-      >
-        {partners.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        onClick={handleAssign}
-        disabled={pending}
-        className="shrink-0 rounded bg-[#2563EB] px-2 py-1 text-xs font-semibold text-white transition hover:bg-[#1d4fd1] disabled:opacity-50"
-      >
-        {pending ? 'Assigning…' : 'Assign'}
-      </button>
+    <div className="mt-2 space-y-2">
+      {pin.pendingOffer && (
+        <p className="text-amber-600">
+          Offered to <span className="font-semibold">{pin.pendingOffer.partnershipName}</span> — awaiting response.
+        </p>
+      )}
+      <div className="flex items-center gap-1.5">
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          disabled={pending}
+          className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-1 text-xs"
+        >
+          {partners.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={handleOffer}
+          disabled={pending}
+          className="shrink-0 rounded bg-[#2563EB] px-2 py-1 text-xs font-semibold text-white transition hover:bg-[#1d4fd1] disabled:opacity-50"
+        >
+          {pending ? 'Working…' : pin.pendingOffer ? 'Re-offer' : 'Offer'}
+        </button>
+      </div>
+      {pin.pendingOffer && (
+        <button
+          type="button"
+          onClick={handleCancel}
+          disabled={pending}
+          className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+        >
+          Cancel Offer
+        </button>
+      )}
     </div>
   )
 }
@@ -148,14 +181,16 @@ function AssignPopupBody({
 export default function TodayAssignmentMap({
   records,
   partners,
-  onAssignRecord,
+  onOfferRecord,
+  onCancelOffer,
   fallbackAnchor,
 }: {
   records: MapRecordPin[]
   // Every Ministry Partner across today's batches (House To House + any Auxiliary Groups), in
   // display order — also determines each partner's color (index into PARTNER_COLORS).
   partners: PartnerInfo[]
-  onAssignRecord: (recordId: string, partnershipId: string) => Promise<{ error?: string }>
+  onOfferRecord: (recordId: string, partnershipId: string) => Promise<{ error?: string }>
+  onCancelOffer: (offerId: string) => Promise<void>
   fallbackAnchor?: { lat: number; lng: number } | null
 }) {
   const pins = useMemo(() => decodePins(records, fallbackAnchor), [records, fallbackAnchor])
@@ -176,7 +211,8 @@ export default function TodayAssignmentMap({
   }
 
   const bounds = L.latLngBounds(pins.map((p): [number, number] => [p.lat, p.lng]))
-  const unassignedCount = pins.filter((p) => !p.partnershipId).length
+  const pendingOfferCount = pins.filter((p) => !p.partnershipId && p.pendingOffer).length
+  const unassignedCount = pins.filter((p) => !p.partnershipId && !p.pendingOffer).length
 
   return (
     <div className="space-y-3">
@@ -187,6 +223,13 @@ export default function TodayAssignmentMap({
             {p.name}
           </span>
         ))}
+        <span className="flex items-center gap-1.5 text-xs text-slate-600">
+          <span
+            className="inline-block h-4 w-4 rounded-full border border-dashed border-white"
+            style={{ background: PENDING_OFFER_COLOR, opacity: 0.6 }}
+          />
+          Offer Pending{pendingOfferCount > 0 ? ` (${pendingOfferCount})` : ''}
+        </span>
         <span className="flex items-center gap-1.5 text-xs text-slate-600">
           <span
             className="inline-block h-4 w-4 rounded-full border border-dashed border-white"
@@ -213,7 +256,9 @@ export default function TodayAssignmentMap({
             const info = pin.partnershipId ? infoByPartnerId.get(pin.partnershipId) : undefined
             const icon = info
               ? dotIcon(info.fill, info.text, info.label, false)
-              : dotIcon(PARTNER_UNASSIGNED_COLOR, '#0b0b0b', null, true)
+              : pin.pendingOffer
+                ? dotIcon(PENDING_OFFER_COLOR, '#0b0b0b', null, true)
+                : dotIcon(PARTNER_UNASSIGNED_COLOR, '#0b0b0b', null, true)
             return (
               <Marker key={pin.id} position={[pin.lat, pin.lng]} icon={icon}>
                 <Popup>
@@ -224,7 +269,7 @@ export default function TodayAssignmentMap({
                       #{info.label} — {info.name}
                     </p>
                   ) : (
-                    <AssignPopupBody pin={pin} partners={partners} onAssign={onAssignRecord} />
+                    <OfferPopupBody pin={pin} partners={partners} onOffer={onOfferRecord} onCancel={onCancelOffer} />
                   )}
                 </Popup>
               </Marker>
