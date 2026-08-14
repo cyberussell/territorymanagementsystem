@@ -274,13 +274,13 @@ export async function movePartnershipRecordAction(_prev: ActionResult, formData:
   const partnership = await getPartnershipByToken(supabase, parsed.data.partnershipToken)
   if (!partnership) return { error: 'This partnership link is no longer valid.' }
   if (partnership.expired) return { error: 'This assignment has ended for the day.' }
-  if (parsed.data.destinationPartnershipId === partnership.id) return { error: 'Choose a different Ministry Partner.' }
+  if (parsed.data.destinationPartnershipId === partnership.id) return { error: 'Choose a different partner.' }
 
   const owns = await partnershipHasRecord(supabase, partnership.id, parsed.data.recordId)
   if (!owns) return { error: 'This contact record is not assigned to your partnership.' }
 
   const destination = await getPartnershipById(supabase, parsed.data.destinationPartnershipId)
-  if (!destination) return { error: 'Invalid destination Ministry Partner.' }
+  if (!destination) return { error: 'Invalid destination partner.' }
   const destinationBatch = await getBatchById(supabase, destination.batch_id)
   const sameGroupLeaderToday =
     destinationBatch &&
@@ -289,9 +289,9 @@ export async function movePartnershipRecordAction(_prev: ActionResult, formData:
     destinationBatch.created_by !== null &&
     destinationBatch.created_by === partnership.batch.created_by
   if (!sameGroupLeaderToday && destination.batch_id !== partnership.batch_id) {
-    return { error: 'Invalid destination Ministry Partner.' }
+    return { error: 'Invalid destination partner.' }
   }
-  if (destination.ended_early_at || destination.finished_at) return { error: 'That Ministry Partner has already ended their ministry for today.' }
+  if (destination.ended_early_at || destination.finished_at) return { error: 'That partner has already ended their ministry for today.' }
 
   try {
     await movePartnershipRecord(supabase, partnership.id, destination.id, parsed.data.recordId, partnership.name)
@@ -349,7 +349,7 @@ export async function releasePartnershipAction(_prev: ActionResult, formData: Fo
   }
 
   try {
-    await releasePartnership(supabase, partnership.id, partnership.sequence)
+    await releasePartnership(supabase, partnership.id, partnership.sequence, partnership.batch.is_overflow)
   } catch (e) {
     await logError(partnership.congregation_id, 'releasePartnershipAction', e)
     return { error: e instanceof Error ? e.message : 'Could not release this partnership.' }

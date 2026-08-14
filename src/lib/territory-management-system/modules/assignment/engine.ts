@@ -27,6 +27,28 @@ export interface EligibleRecord {
 
 export const DEFAULT_MAX_PER_PARTNERSHIP = 6
 
+// Multiple records sharing a non-empty Plus Code (a household with more than one contact — see
+// the 12/029-era "multi-record households" feature) are folded into a single assignment "unit"
+// here, in first-occurrence order, so the whole household always lands in the same partnership
+// and fills exactly one of its maxPerPartnership slots — the publisher makes one visit to the
+// address regardless of how many people are recorded there. A blank/null Plus Code never merges
+// with another blank one; each such record is always its own singleton unit. Exported so
+// addPartnershipToBatch (queries.ts) — which fills one newly-added partnership from whatever's
+// still unassigned, outside a full calculateAssignment run — groups households the same way.
+export function groupIntoUnits(eligibleRecords: EligibleRecord[]): string[][] {
+  const units: string[][] = []
+  const unitIndexByPlusCode = new Map<string, number>()
+  for (const record of eligibleRecords) {
+    if (record.plusCode && unitIndexByPlusCode.has(record.plusCode)) {
+      units[unitIndexByPlusCode.get(record.plusCode)!].push(record.id)
+      continue
+    }
+    if (record.plusCode) unitIndexByPlusCode.set(record.plusCode, units.length)
+    units.push([record.id])
+  }
+  return units
+}
+
 // Records are always assigned sequentially, in the exact order they're passed in — never
 // shuffled or randomized. Partnership 1 fills first (up to maxPerPartnership), then
 // partnership 2, and so on; only the last partnership may end up with fewer than the max.
@@ -50,22 +72,7 @@ export function calculateAssignment(
     }
   }
 
-  // Multiple records sharing a non-empty Plus Code (a household with more than one contact —
-  // see the 12/029-era "multi-record households" feature) are folded into a single assignment
-  // "unit" here, in first-occurrence order, so the whole household always lands in the same
-  // partnership and fills exactly one of its maxPerPartnership slots — the publisher makes one
-  // visit to the address regardless of how many people are recorded there. A blank/null Plus
-  // Code never merges with another blank one; each such record is always its own singleton unit.
-  const units: string[][] = []
-  const unitIndexByPlusCode = new Map<string, number>()
-  for (const record of eligibleRecords) {
-    if (record.plusCode && unitIndexByPlusCode.has(record.plusCode)) {
-      units[unitIndexByPlusCode.get(record.plusCode)!].push(record.id)
-      continue
-    }
-    if (record.plusCode) unitIndexByPlusCode.set(record.plusCode, units.length)
-    units.push([record.id])
-  }
+  const units = groupIntoUnits(eligibleRecords)
 
   // Units fill sequentially, partnership-by-partnership, up to maxPerPartnership each — so the
   // number of partnerships that can end up with at least one unit is capped at
