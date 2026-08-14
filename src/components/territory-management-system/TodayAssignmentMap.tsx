@@ -7,39 +7,32 @@ import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import { OpenLocationCode } from 'open-location-code'
 import type { MapRecordPin } from '@/lib/territory-management-system/modules/assignment/queries'
+import { partnerColorFor, PARTNER_UNASSIGNED_COLOR } from '@/lib/territory-management-system/partnerColors'
 import Card from '@/components/territory-management-system/dashboard/Card'
+import PartnerColorBadge from '@/components/territory-management-system/PartnerColorBadge'
 import 'leaflet/dist/leaflet.css'
 
 const openLocationCode = new OpenLocationCode()
 
-// One color per Ministry Partner, cycled if there are more partners than colors (a 12-color
-// wheel comfortably covers a normal day's headcount before any repeat). Gray is reserved
-// separately for "unassigned" — never part of this cycle, so a partner's own color can never be
-// confused with the unassigned state.
-const PARTNER_COLORS = [
-  '#DC2626', '#EA580C', '#D97706', '#65A30D', '#16A34A', '#0D9488',
-  '#0891B2', '#2563EB', '#4F46E5', '#7C3AED', '#C026D3', '#DB2777',
-]
-const UNASSIGNED_COLOR = '#9CA3AF'
-
-function colorFor(index: number): string {
-  return PARTNER_COLORS[index % PARTNER_COLORS.length]
-}
-
 // A plain colored circle rather than a per-color pin image — scales to any number of Ministry
 // Partners without needing a matching set of raster/SVG pin assets (contrast
-// HouseholdDistributionMap's fixed blue/red pins). Dimmed opacity + a dashed ring for the
-// unassigned/gray case makes it read as "needs attention" at a glance, not just another color.
-function dotIcon(color: string, unassigned: boolean): L.DivIcon {
+// HouseholdDistributionMap's fixed blue/red pins). The partner's own sequence number sits
+// centered on the fill (see PARTNER_COLORS' comment on why color alone isn't a safe enough
+// signal here) — unassigned pins carry no number, just the dashed gray ring, since there's no
+// partner to label them with.
+function dotIcon(color: string, textColor: string, label: string | null, unassigned: boolean): L.DivIcon {
   const style = unassigned
-    ? `background:${color};opacity:0.55;border:2px dashed #ffffff;`
+    ? `background:${color};opacity:0.6;border:2px dashed #ffffff;`
     : `background:${color};border:2px solid #ffffff;`
+  const numeral = label
+    ? `<span style="color:${textColor};font:700 11px/24px system-ui,-apple-system,sans-serif;">${label}</span>`
+    : ''
   return L.divIcon({
     className: '',
-    html: `<div style="width:18px;height:18px;border-radius:9999px;box-shadow:0 1px 3px rgba(0,0,0,0.4);${style}"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-    popupAnchor: [0, -9],
+    html: `<div style="width:24px;height:24px;border-radius:9999px;box-shadow:0 1px 3px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;${style}">${numeral}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
   })
 }
 
@@ -166,8 +159,13 @@ export default function TodayAssignmentMap({
   fallbackAnchor?: { lat: number; lng: number } | null
 }) {
   const pins = useMemo(() => decodePins(records, fallbackAnchor), [records, fallbackAnchor])
-  const colorByPartnerId = useMemo(() => new Map(partners.map((p, i) => [p.id, colorFor(i)])), [partners])
-  const partnerNameById = useMemo(() => new Map(partners.map((p) => [p.id, p.name])), [partners])
+  // Position in this array (1-based) — not the partnership's own `sequence` column — is what
+  // labels each pin/legend swatch: `sequence` restarts at 1 per batch, so two different
+  // batches' "Partner 1" would otherwise render the same number on the map.
+  const infoByPartnerId = useMemo(
+    () => new Map(partners.map((p, i) => [p.id, { ...partnerColorFor(i), label: String(i + 1), name: p.name }])),
+    [partners]
+  )
 
   if (pins.length === 0) {
     return (
@@ -185,14 +183,14 @@ export default function TodayAssignmentMap({
       <Card className="flex flex-wrap gap-x-4 gap-y-2 p-3">
         {partners.map((p, i) => (
           <span key={p.id} className="flex items-center gap-1.5 text-xs text-slate-600">
-            <span className="inline-block h-3 w-3 rounded-full" style={{ background: colorFor(i) }} />
+            <PartnerColorBadge index={i} />
             {p.name}
           </span>
         ))}
         <span className="flex items-center gap-1.5 text-xs text-slate-600">
           <span
-            className="inline-block h-3 w-3 rounded-full border border-dashed border-white"
-            style={{ background: UNASSIGNED_COLOR, opacity: 0.55 }}
+            className="inline-block h-4 w-4 rounded-full border border-dashed border-white"
+            style={{ background: PARTNER_UNASSIGNED_COLOR, opacity: 0.6 }}
           />
           Unassigned{unassignedCount > 0 ? ` (${unassignedCount})` : ''}
         </span>
@@ -212,16 +210,18 @@ export default function TodayAssignmentMap({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           {pins.map((pin) => {
-            const partnerIndex = partners.findIndex((p) => p.id === pin.partnershipId)
-            const color = pin.partnershipId ? colorByPartnerId.get(pin.partnershipId) ?? UNASSIGNED_COLOR : UNASSIGNED_COLOR
+            const info = pin.partnershipId ? infoByPartnerId.get(pin.partnershipId) : undefined
+            const icon = info
+              ? dotIcon(info.fill, info.text, info.label, false)
+              : dotIcon(PARTNER_UNASSIGNED_COLOR, '#0b0b0b', null, true)
             return (
-              <Marker key={pin.id} position={[pin.lat, pin.lng]} icon={dotIcon(color, !pin.partnershipId)}>
+              <Marker key={pin.id} position={[pin.lat, pin.lng]} icon={icon}>
                 <Popup>
                   <p className="font-medium">{pin.address || pin.residentName || pin.plusCode || 'No address on file'}</p>
                   <p className="text-slate-500">{pin.territoryName}</p>
-                  {pin.partnershipId ? (
-                    <p className="mt-1 font-semibold" style={{ color }}>
-                      {partnerNameById.get(pin.partnershipId) ?? `Partner ${partnerIndex + 1}`}
+                  {info ? (
+                    <p className="mt-1 font-semibold" style={{ color: info.fill }}>
+                      #{info.label} — {info.name}
                     </p>
                   ) : (
                     <AssignPopupBody pin={pin} partners={partners} onAssign={onAssignRecord} />

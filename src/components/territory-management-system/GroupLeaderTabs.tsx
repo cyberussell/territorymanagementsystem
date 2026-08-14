@@ -537,12 +537,16 @@ export default function GroupLeaderTabs({
       )}
 
       {/* Follows the batch switcher above (House To House / Auxiliary Groups) — only the
-          currently selected batch's own partners, not every batch stacked on one page. */}
+          currently selected batch's own partners, not every batch stacked on one page. Each
+          card's color badge is still keyed off `combinedStats.partnerships`' full cross-batch
+          order (not this filtered list's own position), so a partner's badge here matches their
+          pin on the Map tab exactly, whichever batch is currently selected. */}
       {tab === 'progress' && (
         <PartnershipList
           partnerships={stats.partnerships}
           onEndPartnership={endPartnershipAction}
           onLoadAssignedRecords={getPartnershipAssignedRecordsAction}
+          colorIndexById={new Map(combinedStats.partnerships.map((p, i) => [p.id, i]))}
         />
       )}
 
