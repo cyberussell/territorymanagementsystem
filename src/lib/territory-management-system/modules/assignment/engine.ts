@@ -17,12 +17,15 @@ export interface AssignmentError {
   error: string
 }
 
-// What the engine needs to know about each eligible record to group households together —
-// plusCode is null/'' for a record with no Plus Code recorded, which never merges with another
-// blank one (see the grouping loop below).
+// What the engine needs to know about each eligible record to group households together and keep
+// each partnership's records geographically clustered — plusCode is null/'' for a record with no
+// Plus Code recorded, which never merges with another blank one (see the grouping loop below).
+// blockId is optional/nullable for the same reason: a record with no block assigned never merges
+// with another blockless one either (see groupUnitsIntoBlockRuns).
 export interface EligibleRecord {
   id: string
   plusCode: string | null
+  blockId?: string | null
 }
 
 export const DEFAULT_MAX_PER_PARTNERSHIP = 6
@@ -49,9 +52,74 @@ export function groupIntoUnits(eligibleRecords: EligibleRecord[]): string[][] {
   return units
 }
 
-// Records are always assigned sequentially, in the exact order they're passed in — never
-// shuffled or randomized. Partnership 1 fills first (up to maxPerPartnership), then
-// partnership 2, and so on; only the last partnership may end up with fewer than the max.
+// Chains consecutive units sharing the same non-null blockId into one "run", in the order given
+// (which is already territory -> section -> block -> staleness, see fetchEligibleRecordIds) — so
+// a block's households stay adjacent as a single group to hand to one partnership, instead of
+// getting split wherever a flat maxPerPartnership-sized slice happens to land. A block-less unit
+// (blockId null/undefined, e.g. a record added before blocks existed) never merges with another
+// block-less one, same singleton rule groupIntoUnits applies to a blank Plus Code, and for the
+// same reason: two records that merely both lack the field aren't known to be related.
+export function groupUnitsIntoBlockRuns(units: string[][], blockIdByFirstRecordId: Map<string, string | null | undefined>): string[][][] {
+  const runs: string[][][] = []
+  let currentBlockId: string | null = null
+  for (const unit of units) {
+    const blockId = blockIdByFirstRecordId.get(unit[0]) ?? null
+    if (blockId !== null && blockId === currentBlockId) {
+      runs[runs.length - 1].push(unit)
+    } else {
+      runs.push([unit])
+      currentBlockId = blockId
+    }
+  }
+  return runs
+}
+
+// Fills one partnership's worth of units from the front of runQueue, mutating it in place, and
+// returns the flat record-id list for that partnership. maxPerPartnership counts UNITS
+// (households), same as the original flat-slice design — a household of 3 people still only
+// fills one slot. Prefers whole runs (whole blocks) so a partnership's records stay
+// geographically clustered: a run that would overflow the remaining capacity is left whole for
+// the NEXT partnership rather than split, unless the partnership is still empty and the run alone
+// has more units than maxPerPartnership — then it has to be split (it could never fit whole in
+// any partnership), at unit/household granularity only, never mid-household. The unconsumed tail
+// of a split run is pushed back to the front of runQueue so the next partnership picks up the
+// same block right where this one left off. Shared by calculateAssignment (looping this once per
+// partnership) and addPartnershipToBatch (queries.ts, filling exactly one newly-added partner
+// from whatever's left over).
+export function fillPartnershipFromRuns(runQueue: string[][][], maxPerPartnership: number): string[] {
+  const takenUnits: string[][] = []
+  let unitCount = 0
+  while (runQueue.length > 0) {
+    const run = runQueue[0]
+    if (unitCount + run.length <= maxPerPartnership) {
+      takenUnits.push(...run)
+      unitCount += run.length
+      runQueue.shift()
+      continue
+    }
+    if (unitCount > 0) break // Doesn't fit what's left of this partnership — defer the whole run, don't split it.
+
+    // unitCount === 0: the run alone has more units than an empty partnership's whole capacity,
+    // so it must be split. Takes at least one unit even if maxPerPartnership is 0 or negative, so
+    // a pathological cap can't stall progress (every run always has >=1 unit).
+    const takeCount = Math.max(1, Math.min(run.length, maxPerPartnership))
+    const taken = run.slice(0, takeCount)
+    takenUnits.push(...taken)
+    unitCount += taken.length
+    const remainder = run.slice(takeCount)
+    runQueue.shift()
+    if (remainder.length > 0) runQueue.unshift(remainder)
+    break
+  }
+  return takenUnits.flat()
+}
+
+// Records are always assigned in the exact order they're passed in — never shuffled or
+// randomized. Partnership 1 fills first (up to maxPerPartnership), then partnership 2, and so on;
+// only the last partnership may end up with fewer than the max. Within that order, whole blocks
+// are kept together in one partnership wherever they fit (see fillPartnershipFromRuns) so a
+// partnership's records form a geographic cluster instead of a block being split arbitrarily
+// across two partners.
 export function calculateAssignment(
   eligibleRecords: EligibleRecord[],
   partnershipCount: number,
@@ -73,6 +141,8 @@ export function calculateAssignment(
   }
 
   const units = groupIntoUnits(eligibleRecords)
+  const blockIdByFirstRecordId = new Map(eligibleRecords.map((r) => [r.id, r.blockId]))
+  const runQueue = groupUnitsIntoBlockRuns(units, blockIdByFirstRecordId)
 
   // Units fill sequentially, partnership-by-partnership, up to maxPerPartnership each — so the
   // number of partnerships that can end up with at least one unit is capped at
@@ -82,18 +152,18 @@ export function calculateAssignment(
   // to correct before generating. The caller (createAssignment/queries.ts) already stores the
   // originally-requested count separately from the actual partnership rows created here, so the
   // UI can surface the gap as a note ("N publishers should do another form of ministry today")
-  // instead of blocking.
+  // instead of blocking. (Deferring whole runs rather than splitting them can leave a
+  // partnership under this ideal max — that's the intended tradeoff for staying clustered, not a
+  // bug — so this is a lower-bound estimate of how many partnerships the pool can fill, same as
+  // it always was.)
   const maxPossiblePartnerships = Math.ceil(units.length / maxPerPartnership)
   const actualPartnershipCount = Math.min(partnershipCount, maxPossiblePartnerships)
 
   const partnerships: AssignmentPartnershipPlan[] = []
-  let unitCursor = 0
   let assignedRecordCount = 0
   for (let sequence = 1; sequence <= actualPartnershipCount; sequence += 1) {
-    const unitSlice = units.slice(unitCursor, unitCursor + maxPerPartnership)
-    const recordIds = unitSlice.flat()
+    const recordIds = fillPartnershipFromRuns(runQueue, maxPerPartnership)
     partnerships.push({ sequence, recordIds })
-    unitCursor += unitSlice.length
     assignedRecordCount += recordIds.length
   }
 

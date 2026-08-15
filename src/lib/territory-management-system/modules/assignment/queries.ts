@@ -1,6 +1,15 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { calculateAssignment, groupIntoUnits, isAssignmentError, DEFAULT_MAX_PER_PARTNERSHIP, type AssignmentError, type EligibleRecord } from './engine'
+import {
+  calculateAssignment,
+  fillPartnershipFromRuns,
+  groupIntoUnits,
+  groupUnitsIntoBlockRuns,
+  isAssignmentError,
+  DEFAULT_MAX_PER_PARTNERSHIP,
+  type AssignmentError,
+  type EligibleRecord,
+} from './engine'
 import { isBatchExpired } from './date'
 import { getCongregationPlusCodeAnchor, getRecordsInBlocks, listRecordsAddedByPartnership } from '../records/queries'
 import { BIBLE_STUDY_FAMILY_RESULTS, isDoNotCallLocked } from '../records/schema'
@@ -52,7 +61,11 @@ async function fetchEligibleRecordIds(
       // territory_sections/territory_blocks since migration 030 (correction_recommended_*),
       // so an unqualified embed is ambiguous to PostgREST and silently returns zero rows
       // instead of erroring (see the matching comment on RECORD_WITH_LOCATION_SELECT).
-      'id, territory_id, plus_code, created_at, section:territory_sections!section_id(sort_order), block:territory_blocks!block_id(sort_order)'
+      // block_id itself is a plain scalar column (no disambiguation needed for a record's own
+      // column, only for an embed) — carried through to EligibleRecord.blockId so
+      // groupUnitsIntoBlockRuns (engine.ts) can keep a block's households clustered in one
+      // partnership instead of split wherever a flat slice happened to land.
+      'id, territory_id, block_id, plus_code, created_at, section:territory_sections!section_id(sort_order), block:territory_blocks!block_id(sort_order)'
     )
     .eq('congregation_id', congregationId)
     .in('territory_id', territoryIds)
@@ -62,6 +75,7 @@ async function fetchEligibleRecordIds(
   const rows = (data ?? []) as unknown as Array<{
     id: string
     territory_id: string
+    block_id: string | null
     plus_code: string | null
     created_at: string
     section: { sort_order: number } | null
@@ -87,7 +101,7 @@ async function fetchEligibleRecordIds(
     return a.created_at.localeCompare(b.created_at)
   })
 
-  return rows.map((r) => ({ id: r.id, plusCode: r.plus_code }))
+  return rows.map((r) => ({ id: r.id, plusCode: r.plus_code, blockId: r.block_id }))
 }
 
 // One query for the whole eligible pool rather than per-record, then reduced in JS to "first
@@ -523,8 +537,12 @@ export async function addPartnershipToBatch(
     return { error: 'No unassigned contact records left in this territory — generate a Language Searcher group instead.' }
   }
 
+  // Same block-clustering packing calculateAssignment uses (engine.ts) — a manually-added
+  // partner should get one geographically coherent block, not whatever's first in a flat slice.
   const units = groupIntoUnits(unassigned)
-  const recordIds = units.slice(0, DEFAULT_MAX_PER_PARTNERSHIP).flat()
+  const blockIdByFirstRecordId = new Map(unassigned.map((r) => [r.id, r.blockId]))
+  const runQueue = groupUnitsIntoBlockRuns(units, blockIdByFirstRecordId)
+  const recordIds = fillPartnershipFromRuns(runQueue, DEFAULT_MAX_PER_PARTNERSHIP)
 
   const { data: lastRow } = await supabase
     .from('partnerships')
