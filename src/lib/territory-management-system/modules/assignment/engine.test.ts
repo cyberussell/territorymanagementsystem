@@ -174,4 +174,77 @@ describe('calculateAssignment', () => {
       expect(result.unassignedCount).toBe(0)
     })
   })
+
+  // Block clustering — keeps a partnership's records geographically clustered by preferring
+  // whole blocks over a flat maxPerPartnership-sized slice (see groupUnitsIntoBlockRuns /
+  // fillPartnershipFromRuns).
+  describe('block grouping', () => {
+    it('defers a whole block to the next partnership rather than splitting it across two', () => {
+      // Block X has 4 records, block Y has 4 records, maxPerPartnership=6: a naive flat slice
+      // would put X's 4 + Y's first 2 in partnership 1, splitting block Y. Block-run packing
+      // instead leaves partnership 1 under-full (4) and defers all of Y to partnership 2.
+      const records: EligibleRecord[] = [
+        ...['x1', 'x2', 'x3', 'x4'].map((id) => ({ id, plusCode: null, blockId: 'X' })),
+        ...['y1', 'y2', 'y3', 'y4'].map((id) => ({ id, plusCode: null, blockId: 'Y' })),
+      ]
+      const result = calculateAssignment(records, 2, 6)
+      expect(isAssignmentError(result)).toBe(false)
+      if (isAssignmentError(result)) return
+      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2', 'x3', 'x4'])
+      expect(result.partnerships[1].recordIds).toEqual(['y1', 'y2', 'y3', 'y4'])
+      expect(result.unassignedCount).toBe(0)
+    })
+
+    it('mixes blocks from different sections in one partnership when there is room', () => {
+      // Section order isn't tracked by the engine at all — only block adjacency in the given
+      // order matters, so a small trailing block and a small leading block (from what queries.ts
+      // sorted as two different sections) can share a partnership.
+      const records: EligibleRecord[] = [
+        ...['x1', 'x2'].map((id) => ({ id, plusCode: null, blockId: 'X' })),
+        ...['y1', 'y2'].map((id) => ({ id, plusCode: null, blockId: 'Y' })),
+      ]
+      const result = calculateAssignment(records, 1, 6)
+      expect(isAssignmentError(result)).toBe(false)
+      if (isAssignmentError(result)) return
+      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2', 'y1', 'y2'])
+    })
+
+    it('splits a block only when it alone exceeds maxPerPartnership, continuing it in the next partnership', () => {
+      const records: EligibleRecord[] = ['x1', 'x2', 'x3', 'x4', 'x5'].map((id) => ({ id, plusCode: null, blockId: 'X' }))
+      const result = calculateAssignment(records, 2, 3)
+      expect(isAssignmentError(result)).toBe(false)
+      if (isAssignmentError(result)) return
+      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2', 'x3'])
+      expect(result.partnerships[1].recordIds).toEqual(['x4', 'x5'])
+      expect(result.unassignedCount).toBe(0)
+    })
+
+    it('never splits a household even when the block around it must split', () => {
+      const records: EligibleRecord[] = [
+        { id: 'x1', plusCode: null, blockId: 'X' },
+        { id: 'x2a', plusCode: 'HH', blockId: 'X' },
+        { id: 'x2b', plusCode: 'HH', blockId: 'X' },
+        { id: 'x3', plusCode: null, blockId: 'X' },
+      ]
+      // 3 units total (x1, the household, x3) in one block run, at maxPerPartnership=2: the run
+      // has more units than fit, so it's split at the unit boundary — x1 + the whole household
+      // (never split mid-household) fill partnership 1, x3 defers to partnership 2.
+      const result = calculateAssignment(records, 2, 2)
+      expect(isAssignmentError(result)).toBe(false)
+      if (isAssignmentError(result)) return
+      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2a', 'x2b'])
+      expect(result.partnerships[1].recordIds).toEqual(['x3'])
+    })
+
+    it('never merges two different blockless units together', () => {
+      const records: EligibleRecord[] = [
+        { id: 'a', plusCode: null, blockId: null },
+        { id: 'b', plusCode: null, blockId: null },
+      ]
+      const result = calculateAssignment(records, 1, 5)
+      expect(isAssignmentError(result)).toBe(false)
+      if (isAssignmentError(result)) return
+      expect(result.partnerships[0].recordIds).toEqual(['a', 'b'])
+    })
+  })
 })
