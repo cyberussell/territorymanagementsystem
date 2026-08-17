@@ -5,7 +5,11 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getTmsEnv } from './supabase'
 
 // Session-scoped client for server components / actions. RLS applies.
-export async function createServerSupabase() {
+// `remember: false` (login's "Remember me" left unchecked) drops the maxAge/expires on the
+// auth cookies Supabase sets, turning them into browser-session cookies instead of the
+// persistent ones it uses by default — same signed-in session, just gone once the browser closes.
+export async function createServerSupabase(options?: { remember?: boolean }) {
+  const remember = options?.remember ?? true
   const { url, anonKey } = getTmsEnv()
   const cookieStore = await cookies()
   return createServerClient(url, anonKey, {
@@ -15,8 +19,8 @@ export async function createServerSupabase() {
       },
       setAll(cookiesToSet) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
+          cookiesToSet.forEach(({ name, value, options: cookieOptions }) =>
+            cookieStore.set(name, value, remember ? cookieOptions : { ...cookieOptions, maxAge: undefined, expires: undefined })
           )
         } catch {
           // Called from a Server Component where cookies are read-only; the

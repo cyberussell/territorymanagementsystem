@@ -35,7 +35,8 @@ export async function signIn(_prev: ActionResult, formData: FormData): Promise<A
 
   const email = String(formData.get('email') ?? '')
   const password = String(formData.get('password') ?? '')
-  const supabase = await createServerSupabase()
+  const remember = formData.get('remember') === 'on'
+  const supabase = await createServerSupabase({ remember })
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error) return { error: 'Invalid email or password.' }
 
