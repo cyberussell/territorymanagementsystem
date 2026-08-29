@@ -175,76 +175,47 @@ describe('calculateAssignment', () => {
     })
   })
 
-  // Block clustering — keeps a partnership's records geographically clustered by preferring
-  // whole blocks over a flat maxPerPartnership-sized slice (see groupUnitsIntoBlockRuns /
-  // fillPartnershipFromRuns).
-  describe('block grouping', () => {
-    it('defers a whole block to the next partnership rather than splitting it across two', () => {
-      // Block X has 4 records, block Y has 4 records, maxPerPartnership=6: a naive flat slice
-      // would put X's 4 + Y's first 2 in partnership 1, splitting block Y. Block-run packing
-      // instead leaves partnership 1 under-full (4) and defers all of Y to partnership 2.
-      const records: EligibleRecord[] = [
-        ...['x1', 'x2', 'x3', 'x4'].map((id) => ({ id, plusCode: null, blockId: 'X' })),
-        ...['y1', 'y2', 'y3', 'y4'].map((id) => ({ id, plusCode: null, blockId: 'Y' })),
-      ]
-      const result = calculateAssignment(records, 2, 6)
-      expect(isAssignmentError(result)).toBe(false)
-      if (isAssignmentError(result)) return
-      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2', 'x3', 'x4'])
-      expect(result.partnerships[1].recordIds).toEqual(['y1', 'y2', 'y3', 'y4'])
-      expect(result.unassignedCount).toBe(0)
-    })
+  // Regression coverage for a reported bug: assignment must always give every partnership except
+  // the last one exactly maxPerPartnership records, never fewer — even though block clustering
+  // used to defer whole blocks to a later partnership and could leave an earlier one under-full
+  // (confirmed with Russell: even counts win over keeping a block together).
+  it('gives every partnership but the last exactly maxPerPartnership records, in order', () => {
+    const records = noPlusCode(Array.from({ length: 24 }, (_, i) => `r${i}`))
+    const result = calculateAssignment(records, 5, 5)
+    expect(isAssignmentError(result)).toBe(false)
+    if (isAssignmentError(result)) return
+    expect(result.partnerships).toHaveLength(5)
+    expect(result.partnerships.map((p) => p.recordIds.length)).toEqual([5, 5, 5, 5, 4])
+    expect(result.unassignedCount).toBe(0)
+  })
 
-    it('mixes blocks from different sections in one partnership when there is room', () => {
-      // Section order isn't tracked by the engine at all — only block adjacency in the given
-      // order matters, so a small trailing block and a small leading block (from what queries.ts
-      // sorted as two different sections) can share a partnership.
-      const records: EligibleRecord[] = [
-        ...['x1', 'x2'].map((id) => ({ id, plusCode: null, blockId: 'X' })),
-        ...['y1', 'y2'].map((id) => ({ id, plusCode: null, blockId: 'Y' })),
-      ]
-      const result = calculateAssignment(records, 1, 6)
-      expect(isAssignmentError(result)).toBe(false)
-      if (isAssignmentError(result)) return
-      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2', 'y1', 'y2'])
-    })
-
-    it('splits a block only when it alone exceeds maxPerPartnership, continuing it in the next partnership', () => {
-      const records: EligibleRecord[] = ['x1', 'x2', 'x3', 'x4', 'x5'].map((id) => ({ id, plusCode: null, blockId: 'X' }))
-      const result = calculateAssignment(records, 2, 3)
-      expect(isAssignmentError(result)).toBe(false)
-      if (isAssignmentError(result)) return
-      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2', 'x3'])
-      expect(result.partnerships[1].recordIds).toEqual(['x4', 'x5'])
-      expect(result.unassignedCount).toBe(0)
-    })
-
-    it('never splits a household even when the block around it must split', () => {
-      const records: EligibleRecord[] = [
-        { id: 'x1', plusCode: null, blockId: 'X' },
-        { id: 'x2a', plusCode: 'HH', blockId: 'X' },
-        { id: 'x2b', plusCode: 'HH', blockId: 'X' },
-        { id: 'x3', plusCode: null, blockId: 'X' },
-      ]
-      // 3 units total (x1, the household, x3) in one block run, at maxPerPartnership=2: the run
-      // has more units than fit, so it's split at the unit boundary — x1 + the whole household
-      // (never split mid-household) fill partnership 1, x3 defers to partnership 2.
-      const result = calculateAssignment(records, 2, 2)
-      expect(isAssignmentError(result)).toBe(false)
-      if (isAssignmentError(result)) return
-      expect(result.partnerships[0].recordIds).toEqual(['x1', 'x2a', 'x2b'])
-      expect(result.partnerships[1].recordIds).toEqual(['x3'])
-    })
-
-    it('never merges two different blockless units together', () => {
-      const records: EligibleRecord[] = [
-        { id: 'a', plusCode: null, blockId: null },
-        { id: 'b', plusCode: null, blockId: null },
-      ]
-      const result = calculateAssignment(records, 1, 5)
-      expect(isAssignmentError(result)).toBe(false)
-      if (isAssignmentError(result)) return
-      expect(result.partnerships[0].recordIds).toEqual(['a', 'b'])
-    })
+  // The engine itself has no notion of section/block — it only ever sees a flat, already-sorted
+  // id list (see fetchEligibleRecordIds/queries.ts, which sorts territory -> section.sort_order ->
+  // block.sort_order -> staleness before calling in). This test stands in for that pre-sorted
+  // order using ids named after their section/block ("s1b1-*" = section 1, block 1) and confirms
+  // the engine never reorders or interleaves them: it only ever walks the queue front-to-back, so
+  // a partnership's records are always a contiguous run of the geographic order it was given —
+  // never records "randomly" pulled from a later block while an earlier one still has records
+  // left unassigned. A block that doesn't divide evenly is split at the exact point the count
+  // requires (never early, never skipping ahead), and only the true last partnership gets a
+  // partial (remainder) count.
+  it('walks pre-sorted section/block order strictly front-to-back, splitting a block only where the count requires it', () => {
+    const records = noPlusCode([
+      's1b1-1', 's1b1-2', 's1b1-3', // section 1, block 1: 3 records
+      's1b2-1', 's1b2-2', // section 1, block 2: 2 records
+      's2b1-1', 's2b1-2', 's2b1-3', 's2b1-4', // section 2, block 1: 4 records
+    ])
+    const result = calculateAssignment(records, 3, 3)
+    expect(isAssignmentError(result)).toBe(false)
+    if (isAssignmentError(result)) return
+    // Partnership 1 fills from block s1b1 alone (exactly 3, no need to reach into s1b2).
+    expect(result.partnerships[0].recordIds).toEqual(['s1b1-1', 's1b1-2', 's1b1-3'])
+    // Partnership 2 continues immediately where partnership 1 left off: all of s1b2, then the
+    // first record of s2b1 — never skipping ahead or pulling from further down the queue.
+    expect(result.partnerships[1].recordIds).toEqual(['s1b2-1', 's1b2-2', 's2b1-1'])
+    // Partnership 3 (the last) picks up exactly where partnership 2 left off and gets the
+    // remainder, even though that's fewer than maxPerPartnership.
+    expect(result.partnerships[2].recordIds).toEqual(['s2b1-2', 's2b1-3', 's2b1-4'])
+    expect(result.unassignedCount).toBe(0)
   })
 })
