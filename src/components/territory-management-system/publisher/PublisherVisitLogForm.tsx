@@ -12,7 +12,7 @@ import {
   VISIT_RESULT_LABELS,
 } from '@/lib/territory-management-system/modules/records/schema'
 import { nowLocalDatetime } from '@/lib/territory-management-system/modules/records/localTime'
-import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
+import FormField, { inputClass, PrivacyReminder } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
 
 // latestResult narrows the Status choices once a record is already an ongoing Bible Study, and
@@ -133,6 +133,7 @@ export default function PublisherVisitLogForm({
             />
           </FormField>
         )}
+        <PrivacyReminder />
         <FormField label="Notes" optional={!notesRequired}>
           <textarea
             value={notes}

@@ -576,8 +576,8 @@ export default function PublisherRecordDetailView({
       )}
 
       <div>
-        <h2 className="mb-3 font-semibold text-[#0B1B33]">Visit History</h2>
-        <VisitHistoryList visits={assigned.visits} />
+        <h2 className="mb-3 font-semibold text-[#0B1B33]">Previous Visits</h2>
+        <VisitHistoryList visits={assigned.visits} compact />
       </div>
     </div>
   )

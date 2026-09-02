@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/territory-management-system/modules/auth/queries'
 import { getRecordById, listVisits, listRecordHistory } from '@/lib/territory-management-system/modules/records/queries'
 import { getPassedFromForRecord } from '@/lib/territory-management-system/modules/assignment/queries'
-import { overrideLatestVisitAction, undoLastVisitAction } from '@/app/tms/actions/records'
 import PageHeader from '@/components/territory-management-system/dashboard/PageHeader'
 import ApprovalBadge from '@/components/territory-management-system/ApprovalBadge'
 import RecordApprovalActions from '@/components/territory-management-system/RecordApprovalActions'
@@ -64,12 +63,8 @@ export default async function RecordDetailPage({ params }: { params: Promise<{ r
         <VisitLogForm recordId={record.id} latestResult={latestVisit?.result} doNotCall={record.do_not_call} />
       </div>
       <div>
-        <h2 className="mb-4 font-semibold text-[#0B1B33]">Visit History</h2>
-        <VisitHistoryList
-          visits={visits}
-          onUndoLast={undoLastVisitAction.bind(null, record.id)}
-          onOverride={overrideLatestVisitAction.bind(null, record.id)}
-        />
+        <h2 className="mb-4 font-semibold text-[#0B1B33]">Previous Visits</h2>
+        <VisitHistoryList visits={visits} compact />
       </div>
       <div>
         <h2 className="mb-4 font-semibold text-[#0B1B33]">Record History</h2>

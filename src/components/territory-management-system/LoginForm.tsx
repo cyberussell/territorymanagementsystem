@@ -124,6 +124,12 @@ export default function LoginForm({ notice }: { notice?: string }) {
             </div>
           </div>
         </div>
+
+        <p className="mt-4 text-center text-xs text-slate-600">
+          <Link href="/tms/privacy" className={`rounded text-[#2563EB] hover:underline ${focusRing}`}>
+            Data Privacy &amp; Confidentiality Notice
+          </Link>
+        </p>
       </div>
     </div>
   )

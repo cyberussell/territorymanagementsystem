@@ -10,7 +10,7 @@ import {
   VISIT_RESULT_CONDUCTOR_PROMPT,
   VISIT_RESULT_LABELS,
 } from '@/lib/territory-management-system/modules/records/schema'
-import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
+import FormField, { inputClass, PrivacyReminder } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
 
 interface RecordFields {
@@ -169,6 +169,7 @@ export default function RecordForm({ territory }: { territory: TerritoryStructur
             />
           </FormField>
         </div>
+        <PrivacyReminder />
         <FormField label="Notes" optional>
           <textarea
             name="notes"
@@ -229,6 +230,7 @@ export default function RecordForm({ territory }: { territory: TerritoryStructur
             />
           </FormField>
         )}
+        {initialResult && <PrivacyReminder />}
         {initialResult && (
           <FormField label="Initial visit notes" optional={!initialNotesRequired}>
             <textarea

@@ -12,15 +12,23 @@ import FormField, { inputClass } from '@/components/territory-management-system/
 // onUndoLast/onOverride are only ever passed from the admin record detail page — the
 // publisher-facing usage of this same list passes neither, so these controls never render
 // there. Both only offered on the single most recent entry: deleteLatestVisit/
-// overrideLatestVisit can only ever act on that one row.
+// overrideLatestVisit can only ever act on that one row. Ignored entirely when `compact` is set
+// (see below) — Weekly Notes is the only caller still using the full, editable card style.
 export default function VisitHistoryList({
   visits,
   onUndoLast,
   onOverride,
+  compact,
 }: {
   visits: RecordVisitWithAuthor[]
   onUndoLast?: () => Promise<void>
   onOverride?: (result: string, notes: string) => Promise<{ error: string } | { error: 'SAVED' }>
+  // Plain-text "Previous Visits" list used by the single-record detail views (admin + publisher):
+  // one line per visit (date — status, newest first) and a single "Latest note" line for the
+  // most recent visit that actually has one — no per-visit notes, no badges, no Undo/Override.
+  // Weekly Notes keeps the full card rendering below since it depends on Undo/Override being
+  // available right there (see weekly-notes/page.tsx).
+  compact?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [result, setResult] = useState('')
@@ -31,6 +39,25 @@ export default function VisitHistoryList({
 
   if (visits.length === 0) {
     return <Card className="p-6 text-center text-sm text-slate-600">No visits logged yet.</Card>
+  }
+
+  if (compact) {
+    const latestNote = visits.find((v) => v.notes)?.notes
+    return (
+      <div className="space-y-1.5 text-sm text-slate-700">
+        {visits.map((visit) => (
+          <p key={visit.id}>
+            {new Date(visit.visited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} —{' '}
+            {VISIT_RESULT_LABELS[visit.result]}
+          </p>
+        ))}
+        {latestNote && (
+          <p className="pt-1">
+            <span className="font-semibold">Latest note:</span> {latestNote}
+          </p>
+        )}
+      </div>
+    )
   }
 
   function startEditing(visit: RecordVisitWithAuthor) {

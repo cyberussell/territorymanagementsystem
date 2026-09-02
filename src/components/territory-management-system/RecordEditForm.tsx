@@ -3,7 +3,7 @@
 import { updateRecordAction } from '@/app/tms/actions/records'
 import { useServerAction } from '@/lib/territory-management-system/hooks/useServerAction'
 import type { TerritoryRecordWithLocation } from '@/lib/territory-management-system/modules/records/types'
-import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
+import FormField, { inputClass, PrivacyReminder } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
 
 export default function RecordEditForm({ record }: { record: TerritoryRecordWithLocation }) {
@@ -40,6 +40,7 @@ export default function RecordEditForm({ record }: { record: TerritoryRecordWith
             />
           </FormField>
         </div>
+        <PrivacyReminder />
         <FormField label="Notes" optional>
           <textarea name="notes" maxLength={500} rows={2} defaultValue={record.notes} className={inputClass} />
         </FormField>

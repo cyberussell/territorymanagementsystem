@@ -11,7 +11,7 @@ import {
   VISIT_RESULT_LABELS,
 } from '@/lib/territory-management-system/modules/records/schema'
 import { locatePlusCode } from '@/lib/territory-management-system/plusCode'
-import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
+import FormField, { inputClass, PrivacyReminder } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
 
 export interface NewPublisherRecordPayload {
@@ -255,6 +255,7 @@ export default function PublisherRecordForm({
             />
           </FormField>
         </div>
+        <PrivacyReminder />
         <FormField label="Notes" optional>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} rows={2} className={inputClass} />
         </FormField>
@@ -285,6 +286,7 @@ export default function PublisherRecordForm({
             />
           </FormField>
         )}
+        {mode === 'add' && initialResult && <PrivacyReminder />}
         {mode === 'add' && initialResult && (
           <FormField label="Initial visit notes" optional={!initialNotesRequired}>
             <textarea

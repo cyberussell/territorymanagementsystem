@@ -7,6 +7,22 @@
 export const inputClass =
   'w-full rounded-lg border border-blue-100 bg-[#F8FBFF] px-3 py-2 text-base text-[#0B1B33] placeholder:text-slate-400 focus:border-[#38BDF8] focus:outline-none'
 
+// Shown directly above any notes textarea that captures information about a resident — keeps
+// publishers/admins from drifting into recording sensitive personal information (religion,
+// health, ethnicity, etc.) the Data Privacy Act notice on the login page (/tms/privacy) already
+// asks them not to collect. Deliberately smaller than the app's regular text-sm/text-base scale
+// so it reads as a passive reminder, not a form label.
+export function PrivacyReminder() {
+  return (
+    <p className="text-[11px] leading-relaxed text-slate-500">
+      <span className="font-semibold">Privacy Reminder:</span> Keep notes brief and ministry-related. Do not record
+      sensitive or unnecessary personal information, such as religion, health or medical information, political
+      views, financial circumstances, ethnicity, private family matters, or personal judgments. Record only what is
+      reasonably necessary for a courteous return visit.
+    </p>
+  )
+}
+
 export default function FormField({
   label,
   optional,

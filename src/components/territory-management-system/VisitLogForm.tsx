@@ -10,7 +10,7 @@ import {
   VISIT_RESULT_LABELS,
 } from '@/lib/territory-management-system/modules/records/schema'
 import { nowLocalDatetime } from '@/lib/territory-management-system/modules/records/localTime'
-import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
+import FormField, { inputClass, PrivacyReminder } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
 
 // latestResult narrows the Status choices once a record is already an ongoing Bible Study, and
@@ -67,6 +67,7 @@ export default function VisitLogForm({
         <FormField label="Ministry Partner" optional>
           <input name="partnerName" maxLength={80} placeholder="Who actually made this visit?" className={inputClass} />
         </FormField>
+        <PrivacyReminder />
         <FormField label="Notes" optional={!notesRequired}>
           <textarea name="notes" maxLength={500} rows={2} required={notesRequired} className={inputClass} />
         </FormField>
