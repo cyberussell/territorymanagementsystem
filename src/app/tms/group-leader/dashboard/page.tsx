@@ -18,22 +18,25 @@ export const dynamic = 'force-dynamic'
 export default async function GroupLeaderDashboardPage() {
   const { supabase, congregation, userId, userName } = await requireGroupLeader()
   const today = todayInTimezone(congregation.timezone)
-  const batches = await getBatchesForGroupLeaderAndDate(supabase, congregation.id, userId, today)
-
-  const [territories, approvedCounts] = await Promise.all([
-    listTerritories(supabase, congregation.id),
-    getApprovedRecordCounts(supabase, congregation.id),
-  ])
-  const activeTerritories = territories
-    .filter((t) => t.status === 'active')
-    .map((t) => ({ id: t.id, name: t.name, barangayName: t.description, approvedCount: approvedCounts[t.id] ?? 0 }))
 
   // "Worked in the last month" list — fetched regardless of whether today's assignment exists
   // yet, since territory coverage over time is useful information on both the pre-assignment
   // screen below and the tabbed Dashboard view (see GroupLeaderTabs).
   const oneMonthAgo = new Date()
   oneMonthAgo.setUTCMonth(oneMonthAgo.getUTCMonth() - 1)
-  const territoryHistory = await getTerritoryVisitHistory(supabase, congregation.id, oneMonthAgo.toISOString())
+
+  // Independent of each other — fetched concurrently rather than one after another, since each
+  // Supabase call is a full network round trip and this page renders right after every QR
+  // generation.
+  const [batches, territories, approvedCounts, territoryHistory] = await Promise.all([
+    getBatchesForGroupLeaderAndDate(supabase, congregation.id, userId, today),
+    listTerritories(supabase, congregation.id),
+    getApprovedRecordCounts(supabase, congregation.id),
+    getTerritoryVisitHistory(supabase, congregation.id, oneMonthAgo.toISOString()),
+  ])
+  const activeTerritories = territories
+    .filter((t) => t.status === 'active')
+    .map((t) => ({ id: t.id, name: t.name, barangayName: t.description, approvedCount: approvedCounts[t.id] ?? 0 }))
 
   // Campaign-day scenario: no assignment yet today — lead with the generation form itself
   // rather than a passive "nothing here" message, since this is the Group Leader's very first
@@ -55,15 +58,13 @@ export default async function GroupLeaderDashboardPage() {
   const batchViews = (
     await Promise.all(
       batches.map(async (batch): Promise<BatchView | null> => {
-        const stats = await getBatchStats(supabase, congregation.id, batch.id, congregation.timezone)
-        if (!stats) return null
         // Inverted (orange on black) for an overflow batch's QR so it's visually distinct from
         // the original assignment's plain black-on-white QR at a glance.
-        const qrDataUrl = await getAssignmentBatchQrDataUrl(
-          batch.access_token,
-          batch.is_overflow ? '#F97316' : undefined,
-          batch.is_overflow ? '#000000' : undefined
-        )
+        const [stats, qrDataUrl] = await Promise.all([
+          getBatchStats(supabase, congregation.id, batch.id, congregation.timezone),
+          getAssignmentBatchQrDataUrl(batch.access_token, batch.is_overflow ? '#F97316' : undefined, batch.is_overflow ? '#000000' : undefined),
+        ])
+        if (!stats) return null
         return {
           batchId: batch.id,
           qrDataUrl,
@@ -87,18 +88,13 @@ export default async function GroupLeaderDashboardPage() {
   // Combined regular-assignment + auxiliary/overflow-batch totals for today, so the Group
   // Leader's Dashboard/Visits/Partners tabs (and the post-completion Home tab summary) show one
   // "today" total instead of forcing a per-batch view — see getCombinedBatchStats.
-  const combinedStats = await getCombinedBatchStats(
-    supabase,
-    congregation.id,
-    batchViews.map((v) => v.stats),
-    today,
-    congregation.timezone
-  )
-
+  //
   // Map tab data: every contact record across today's own batches' territories, tagged with
   // which (if any) of today's own partnerships holds it — batches.map(b => b.id) rather than
   // batchViews' ids, same set, just avoids re-deriving it from the already-consumed stats.
-  const [mapRecords, congregationAnchor] = await Promise.all([
+  // All three are independent, so fetched concurrently.
+  const [combinedStats, mapRecords, congregationAnchor] = await Promise.all([
+    getCombinedBatchStats(supabase, congregation.id, batchViews.map((v) => v.stats), today, congregation.timezone),
     getBatchesMapRecords(supabase, congregation.id, [...todaysTerritoryIds], batches.map((b) => b.id)),
     getCongregationPlusCodeAnchor(supabase, congregation.id),
   ])
