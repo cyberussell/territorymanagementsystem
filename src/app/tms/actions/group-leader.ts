@@ -50,7 +50,7 @@ export async function createGroupLeaderAssignmentAction(_prev: ActionResult, for
   const assignmentDate = todayInTimezone(congregation.timezone)
 
   const existing = await getBatchesForGroupLeaderAndDate(supabase, congregation.id, userId, assignmentDate)
-  for (const batch of existing) await deleteBatch(supabase, batch.id)
+  await Promise.all(existing.map((batch) => deleteBatch(supabase, batch.id)))
 
   const result = await createAssignment(supabase, congregation.id, {
     territoryIds: parsed.data.territoryIds,

@@ -400,11 +400,10 @@ export async function createAssignment(
   // selected id actually belongs to this congregation before it's written into
   // assignment_batch_territories, same "don't trust a client-supplied parent id" rule as
   // territory/queries.ts's addSection/addBlock.
-  const { data: ownedTerritories } = await supabase
-    .from('territories')
-    .select('id, name')
-    .eq('congregation_id', congregationId)
-    .in('id', input.territoryIds)
+  const [{ data: ownedTerritories }, inUseTerritoryIds] = await Promise.all([
+    supabase.from('territories').select('id, name').eq('congregation_id', congregationId).in('id', input.territoryIds),
+    getTerritoryIdsInUseToday(supabase, congregationId, input.assignmentDate, input.forceZeroRecords ? input.createdBy : undefined),
+  ])
   const ownedById = new Map((ownedTerritories ?? []).map((t) => [t.id as string, t.name as string]))
   const territoryIds = input.territoryIds.filter((id) => ownedById.has(id))
   if (territoryIds.length === 0) return { error: 'Select at least one valid territory.' }
@@ -412,13 +411,8 @@ export async function createAssignment(
   // No two Group Leaders' active batches on the same day may cover the same territory —
   // confirmed with Russell: a hard block with a clear error, not a silent auto-filter. The
   // overflow path is this same Group Leader deliberately re-covering their own territory, so it
-  // excludes their own batches from the conflict check.
-  const inUseTerritoryIds = await getTerritoryIdsInUseToday(
-    supabase,
-    congregationId,
-    input.assignmentDate,
-    input.forceZeroRecords ? input.createdBy : undefined
-  )
+  // excludes their own batches from the conflict check (inUseTerritoryIds, fetched above
+  // alongside the ownership check).
   const conflictingNames = territoryIds.filter((id) => inUseTerritoryIds.has(id)).map((id) => ownedById.get(id) ?? id)
   if (conflictingNames.length > 0) {
     const list = conflictingNames.join(', ')
@@ -449,31 +443,40 @@ export async function createAssignment(
   )
   if (territoriesError) return { error: territoriesError.message }
 
-  for (const partnershipPlan of plan.partnerships) {
-    const { data: partnership, error: partnershipError } = await supabase
+  // One bulk insert for every partnership, then one for every partnership_records row — this
+  // used to be two sequential round trips PER partnership, which dominated generation time
+  // (the database is in a different region from the app server, so each trip costs ~150ms+).
+  if (plan.partnerships.length > 0) {
+    const { data: insertedPartnerships, error: partnershipError } = await supabase
       .from('partnerships')
-      .insert({
-        congregation_id: congregationId,
-        batch_id: batchId,
-        sequence: partnershipPlan.sequence,
-        name: defaultPartnershipName(Boolean(input.forceZeroRecords), partnershipPlan.sequence),
-      })
-      .select('id')
-      .single()
+      .insert(
+        plan.partnerships.map((partnershipPlan) => ({
+          congregation_id: congregationId,
+          batch_id: batchId,
+          sequence: partnershipPlan.sequence,
+          name: defaultPartnershipName(Boolean(input.forceZeroRecords), partnershipPlan.sequence),
+        }))
+      )
+      .select('id, sequence')
     if (partnershipError) return { error: partnershipError.message }
+    // Matched back by sequence rather than trusting RETURNING row order.
+    const partnershipIdBySequence = new Map(
+      ((insertedPartnerships ?? []) as { id: string; sequence: number }[]).map((p) => [p.sequence, p.id])
+    )
 
     // A "searching a fresh territory" partnership has zero recordIds by design (see engine.ts)
     // — .insert([]) is a no-op worth skipping outright rather than trusting every Supabase
     // client version to handle an empty array insert gracefully.
-    if (partnershipPlan.recordIds.length > 0) {
-      const { error: recordsError } = await supabase.from('partnership_records').insert(
-        partnershipPlan.recordIds.map((recordId, index) => ({
-          congregation_id: congregationId,
-          partnership_id: partnership.id,
-          record_id: recordId,
-          sequence: index + 1,
-        }))
-      )
+    const recordRows = plan.partnerships.flatMap((partnershipPlan) =>
+      partnershipPlan.recordIds.map((recordId, index) => ({
+        congregation_id: congregationId,
+        partnership_id: partnershipIdBySequence.get(partnershipPlan.sequence),
+        record_id: recordId,
+        sequence: index + 1,
+      }))
+    )
+    if (recordRows.length > 0) {
+      const { error: recordsError } = await supabase.from('partnership_records').insert(recordRows)
       if (recordsError) return { error: recordsError.message }
     }
   }
