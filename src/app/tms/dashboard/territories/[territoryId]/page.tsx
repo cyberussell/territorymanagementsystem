@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/territory-management-system/modules/auth/queries'
-import { getTerritoryStructure } from '@/lib/territory-management-system/modules/territory/queries'
+import { getTerritoryStructure, withSignedTerritoryMapUrls } from '@/lib/territory-management-system/modules/territory/queries'
+import { createAdminSupabase } from '@/lib/territory-management-system/supabase-server'
 import { listRecords } from '@/lib/territory-management-system/modules/records/queries'
 import { deleteTerritoryAction } from '@/app/tms/actions/territories'
 import PageHeader from '@/components/territory-management-system/dashboard/PageHeader'
@@ -18,7 +19,12 @@ export default async function TerritoryDetailPage({ params }: { params: Promise<
   const { supabase, congregation } = await requireAdmin()
   const territory = await getTerritoryStructure(supabase, congregation.id, territoryId)
   if (!territory) notFound()
-  const records = await listRecords(supabase, congregation.id, territoryId)
+  // The territory was just loaded through the admin's own RLS-scoped session (and filtered by
+  // their congregation), so it's safe to sign its map with the service-role client.
+  const [records, [signedTerritory]] = await Promise.all([
+    listRecords(supabase, congregation.id, territoryId),
+    withSignedTerritoryMapUrls(createAdminSupabase(), [territory]),
+  ])
 
   return (
     <div className="space-y-8">
@@ -40,7 +46,7 @@ export default async function TerritoryDetailPage({ params }: { params: Promise<
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <TerritoryDetailsForm territory={territory} />
-        <TerritoryMapUpload territoryId={territory.id} territoryName={territory.name} mapImageUrl={territory.map_image_url} />
+        <TerritoryMapUpload territoryId={territory.id} territoryName={territory.name} mapImageUrl={signedTerritory.map_image_url} />
       </div>
 
       <TerritoryTabs territory={territory} records={records} />
