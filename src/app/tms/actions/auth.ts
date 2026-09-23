@@ -7,12 +7,13 @@ import { checkRateLimit, clientIp } from '@/lib/territory-management-system/rate
 import type { UserRole } from '@/lib/territory-management-system/modules/auth/types'
 import { type ActionResult } from './shared'
 
-// No signup action this pass — congregations + their first admin/group leader are provisioned
-// manually (see territory-management-system/SETUP.md §3).
+// No public signup — a super admin creates each congregation and invites its first Administrator
+// from /tms/platform (see territory-management-system/SETUP.md §3).
 
 const ROLE_REDIRECT: Record<UserRole, string> = {
   admin: '/tms/dashboard',
   group_leader: '/tms/group-leader/dashboard',
+  super_admin: '/tms/platform',
 }
 
 export async function signIn(_prev: ActionResult, formData: FormData): Promise<ActionResult> {

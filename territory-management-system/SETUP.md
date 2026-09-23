@@ -48,48 +48,43 @@ unauthenticated page; claiming a partnership stores an opaque token client-side,
 only "credential" for the rest of that day's session. See `assignment_batches.access_token` /
 `partnerships.claim_token` in `002_assignment_engine.sql`.
 
-## 3. Provisioning a congregation (manual — no public signup)
+## 3. Provisioning congregations (platform console)
 
-For each new congregation:
+Congregations are added from the **platform console** at `/tms/platform`, by a `super_admin`
+account. It creates the congregation and emails its first Administrator an invite link. The
+Administrator sets a password from that link, then signs in at `/tms/login`.
 
-1. **Create the admin's auth user** — in the Supabase dashboard, **Authentication → Users →
-   Add user**, or via the Admin API:
-   ```
-   POST https://xxxx.supabase.co/auth/v1/admin/users
-   { "email": "admin@example.com", "password": "...", "email_confirm": true }
-   ```
-   This fires the `handle_new_user` trigger, which creates their `profiles` row automatically
-   (`role` defaults to `'admin'`, `congregation_id` starts `null`).
+### One-time setup
 
-2. **Create the congregation row** in the SQL Editor:
-   ```sql
-   insert into public.congregations (name, congregation_number)
-   values ('Example Congregation', '12345')
-   returning id;
-   ```
-
-3. **Link the admin to the congregation**:
+1. **Invite email template.** Paste `territory-management-system/email-templates/invite-user.html`
+   into **Authentication → Emails → Invite user** (subject: "You're invited to manage your
+   congregation's territories"). Its link goes straight to `/tms/set-password?token_hash=…`, which
+   works on any device; Supabase's default template link does not work reliably with this app.
+2. **Custom SMTP** (recommended). Supabase's built-in email sender only allows a few emails per
+   hour. Set up an SMTP provider under **Authentication → Emails → SMTP settings** before
+   inviting more than a couple of congregations at once.
+3. **Create the super admin account.** In **Authentication → Users → Add user**, create the account
+   with a password and "Auto Confirm User" checked. Then run:
    ```sql
    update public.profiles
-   set congregation_id = '<congregation id from step 2>'
-   where id = '<admin user id from step 1>';
+   set role = 'super_admin', congregation_id = null, full_name = 'Your Name'
+   where id = (select id from auth.users where email = 'you@example.com');
    ```
+   Signing in with that account at `/tms/login` goes to `/tms/platform`.
 
-4. The admin can now sign in at `/tms/login`.
+### Adding a congregation
 
-**Provisioning a Group Leader** works the same way, plus one extra update after step 3's
-pattern:
-```sql
-update public.profiles
-set role = 'group_leader', congregation_id = '<congregation id>'
-where id = '<their auth user id, created the same way as step 1>';
-```
-They sign in at the same `/tms/login` — the app redirects admins to
-`/dashboard` and group leaders to `/group-leader/dashboard` automatically based on `role`.
+In `/tms/platform`, fill in the congregation name, congregation number, time zone and the
+Administrator's email (name optional), then **Add Congregation & Send Invite**. The table shows
+each Administrator as "Invite pending" until they sign in for the first time; **Resend** sends
+the invite email again.
+
+**Group Leaders** are still invited by their congregation's Administrator from the Group
+Leaders page (temporary password, no email).
 
 ## 4. What's not built yet
 
-- Public signup/onboarding flow — deferred; provisioning is manual (§3) every pass so far.
+- Public self-service signup — congregations are added by a super admin (§3), not by themselves.
 - Map section/block boundaries are not drawn on the uploaded image — the map is a reference
   image only; sections/blocks are tracked as counts/labels, not spatial regions.
 - Offline Mode (publisher workspace) caches data in the browser's IndexedDB only — clearing
