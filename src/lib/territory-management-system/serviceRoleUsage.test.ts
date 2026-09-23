@@ -12,6 +12,7 @@ const REVIEWED_SERVICE_ROLE_FILES = [
   'src/app/tms/actions/auth.ts',
   'src/app/tms/actions/group-leaders.ts',
   'src/app/tms/actions/password.ts',
+  'src/app/tms/actions/platform.ts',
   'src/app/tms/actions/publisher.ts',
   'src/app/tms/api/health/route.ts',
   'src/app/tms/assignment/[batchToken]/[partnershipToken]/page.tsx',
@@ -19,6 +20,7 @@ const REVIEWED_SERVICE_ROLE_FILES = [
   'src/app/tms/assignment/[batchToken]/progress/page.tsx',
   'src/app/tms/dashboard/group-leaders/page.tsx',
   'src/app/tms/dashboard/territories/[territoryId]/page.tsx',
+  'src/app/tms/platform/page.tsx',
   'src/lib/territory-management-system/errors.ts',
   'src/lib/territory-management-system/rateLimit.ts',
 ]

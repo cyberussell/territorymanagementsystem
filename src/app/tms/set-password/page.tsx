@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import { CircleCheck } from 'lucide-react'
 import { createBrowserSupabase } from '@/lib/territory-management-system/supabase'
 
-// Reached from the Admin's own "forgot password" email link (Group Leader accounts no longer
+// Reached from a new Administrator's invite email (sent from the platform console), and from an
+// Admin's own "forgot password" email link (Group Leader accounts no longer
 // route through here at all — invites and Admin-triggered resets both use a temp password the
 // Admin relays directly instead, see GroupLeadersManager.tsx and the invite-flow checkpoint).
 // The reset link is `?code=...` (real PKCE, generated server-side by resetPasswordForEmail).
@@ -36,11 +37,26 @@ export default function SetPasswordPage() {
     const hashParams = new URLSearchParams(window.location.hash.slice(1))
     const accessToken = hashParams.get('access_token')
     const refreshToken = hashParams.get('refresh_token')
-    const code = new URLSearchParams(window.location.search).get('code')
+    const searchParams = new URLSearchParams(window.location.search)
+    const code = searchParams.get('code')
+    // Invites from the platform console (/tms/platform): the invite email template links here
+    // directly with ?token_hash=...&type=invite (see email-templates/invite-user.html). verifyOtp
+    // needs no code_verifier cookie, so the link works on whatever device the Administrator
+    // opens it on — unlike ?code= (PKCE), which only works in the browser that requested it.
+    const tokenHash = searchParams.get('token_hash')
+    const otpType = searchParams.get('type')
 
     const supabase = createBrowserSupabase()
 
-    if (accessToken && refreshToken) {
+    if (tokenHash && (otpType === 'invite' || otpType === 'recovery')) {
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType }).then(({ error: verifyError }) => {
+        if (!verifyError) {
+          readyRef.current = true
+          setReady(true)
+          window.history.replaceState(null, '', window.location.pathname)
+        }
+      })
+    } else if (accessToken && refreshToken) {
       supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }).then(({ error: sessionError }) => {
         if (!sessionError) {
           readyRef.current = true

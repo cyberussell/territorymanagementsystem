@@ -55,3 +55,31 @@ export async function requireAdmin(): Promise<RoleSession> {
 export async function requireGroupLeader(): Promise<RoleSession> {
   return requireRole('group_leader')
 }
+
+export interface SuperAdminSession {
+  userId: string
+  userName: string
+}
+
+// Platform console (/tms/platform) pages and actions call this. A super admin belongs to no
+// congregation, so this can't reuse requireRole (which insists on one). Returns no Supabase
+// client on purpose: RLS grants a super admin nothing, so every platform query runs through
+// the service-role client, only after this check has passed.
+export async function requireSuperAdmin(): Promise<SuperAdminSession> {
+  const supabase = await createServerSupabase()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) redirect('/tms/login')
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, revoked_at, must_change_password, full_name')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (!profile || profile.role !== 'super_admin') redirect('/tms/login')
+  if (profile.revoked_at) redirect('/tms/login?error=revoked')
+  if (profile.must_change_password) redirect('/tms/change-password')
+
+  return { userId: user.id, userName: profile.full_name || 'Super Admin' }
+}
