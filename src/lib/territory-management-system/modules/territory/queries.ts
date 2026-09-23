@@ -171,6 +171,43 @@ export async function deleteBlock(supabase: SupabaseClient, blockId: string): Pr
   if (error) throw error
 }
 
+const MAP_BUCKET = 'territory-maps'
+// Signed map links only need to outlive one field-ministry day — publisher links are day-scoped
+// (see isBatchExpired), and the offline "Download Assignment" step caches the image as a Blob
+// at download time, so an expired link never matters once it's cached.
+const MAP_SIGNED_URL_TTL_SECONDS = 60 * 60 * 24
+
+// territories.map_image_url still stores the object's old public-form URL (plus a ?v= cache
+// buster) as a stable identifier — the bucket itself is private since 045_private_territory_maps.sql,
+// so that URL no longer resolves on its own. This recovers the object path from it.
+export function territoryMapPathFromUrl(url: string): string | null {
+  const marker = `/object/public/${MAP_BUCKET}/`
+  const index = url.indexOf(marker)
+  if (index === -1) return null
+  return decodeURIComponent(url.slice(index + marker.length).split('?')[0])
+}
+
+// Swaps each territory's stored map_image_url for a short-lived signed URL, in one storage
+// call. Must be given a service-role client (the private bucket has no read policy for
+// publishers, who have no session at all) — so callers must already have verified the
+// territories belong to the congregation they're serving. A map that can't be signed comes
+// back null rather than as the dead public URL.
+export async function withSignedTerritoryMapUrls<T extends { map_image_url: string | null }>(
+  serviceSupabase: SupabaseClient,
+  territories: T[]
+): Promise<T[]> {
+  const paths = territories.map((t) => (t.map_image_url ? territoryMapPathFromUrl(t.map_image_url) : null))
+  const toSign = [...new Set(paths.filter((p): p is string => p !== null))]
+  if (toSign.length === 0) return territories.map((t) => ({ ...t, map_image_url: null }))
+
+  const { data } = await serviceSupabase.storage.from(MAP_BUCKET).createSignedUrls(toSign, MAP_SIGNED_URL_TTL_SECONDS)
+  const signedByPath = new Map((data ?? []).filter((d) => d.path && d.signedUrl).map((d) => [d.path as string, d.signedUrl]))
+  return territories.map((t, i) => {
+    const path = paths[i]
+    return { ...t, map_image_url: path ? (signedByPath.get(path) ?? null) : null }
+  })
+}
+
 const MAP_EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -188,16 +225,16 @@ export async function uploadTerritoryMap(
   if (!extension) throw new Error('Territory map must be a JPG image.')
 
   const folder = `${congregationId}/${territoryId}`
-  const { data: existing } = await supabase.storage.from('territory-maps').list(folder)
+  const { data: existing } = await supabase.storage.from(MAP_BUCKET).list(folder)
   if (existing && existing.length > 0) {
-    await supabase.storage.from('territory-maps').remove(existing.map((f) => `${folder}/${f.name}`))
+    await supabase.storage.from(MAP_BUCKET).remove(existing.map((f) => `${folder}/${f.name}`))
   }
 
   const path = `${folder}/map.${extension}`
-  const { error: uploadError } = await supabase.storage.from('territory-maps').upload(path, file, { contentType: file.type })
+  const { error: uploadError } = await supabase.storage.from(MAP_BUCKET).upload(path, file, { contentType: file.type })
   if (uploadError) throw uploadError
 
-  const { data: publicUrl } = supabase.storage.from('territory-maps').getPublicUrl(path)
+  const { data: publicUrl } = supabase.storage.from(MAP_BUCKET).getPublicUrl(path)
   // Cache-bust so the new map shows immediately even though the path is unchanged.
   const mapUrl = `${publicUrl.publicUrl}?v=${Date.now()}`
   await updateTerritoryMapImage(supabase, territoryId, mapUrl)
