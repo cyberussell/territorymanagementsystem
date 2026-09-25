@@ -21,7 +21,7 @@ npm run build   # also the typecheck — there is no separate lint/tsc script
 npm test        # vitest run
 ```
 
-Env vars (in `.env.local`, gitignored; tests load it too via `vitest.setup.ts`):
+Env vars (copy `.env.example` → `.env.local`, gitignored; tests load it too via `vitest.setup.ts`):
 `NEXT_PUBLIC_TMS_SUPABASE_URL`, `NEXT_PUBLIC_TMS_SUPABASE_ANON_KEY`,
 `TMS_SUPABASE_SERVICE_ROLE_KEY` (server-only, never `NEXT_PUBLIC_`).
 
