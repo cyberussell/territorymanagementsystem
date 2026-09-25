@@ -16,7 +16,7 @@ All code lives in three scoped places:
 ## 1. Create the dedicated Supabase project
 
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) → **New project** → name it `territory-management-system`.
-2. Open **SQL Editor** and run every file in `territory-management-system/migrations/` in order (001 → 002 → 003 → 004).
+2. Open **SQL Editor** and run every file in `territory-management-system/migrations/` in filename order (`001_init.sql` → … → the highest-numbered file). When pulling new changes, run only the migrations added since you last applied them — never re-run an applied one.
 3. In **Authentication → Providers → Email**: keep Email enabled.
 4. Copy the keys from **Settings → API** into `.env.local`:
 
