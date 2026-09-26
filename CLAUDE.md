@@ -184,3 +184,19 @@ intact when touching record/note forms.
 - Use `logError(congregationId, source, err)` for unexpected failures; it never throws.
 - Toasts via `sonner`; icons via `lucide-react`; confirmations via `useConfirm` / `usePrompt`.
 - Offline publisher mode uses IndexedDB (`idb`) in `modules/offline/`.
+- Server Actions follow one shape: `(_prev: ActionResult, formData: FormData)`, zod
+  `safeParse` first (return the first issue's message), then the `require*()` guard, then the
+  module's `queries.ts` call in try/catch returning `{ error }`, then `revalidatePath`. To stay
+  on the page after success, return a sentinel such as `{ error: 'SAVED' }`; client forms
+  handle it with `useServerAction(action, ['SAVED'])`.
+- Keep Supabase calls in `modules/<area>/queries.ts` (client passed in), not in pages or
+  components.
+- Avoid sequential Supabase round trips: use PostgREST embeds and `Promise.all`. Each extra
+  round trip is noticeable on authenticated page loads.
+- New `security definer` functions: pin `search_path` and revoke/grant `execute` explicitly
+  (see 045). Migrations are applied by hand, so say in the PR when one needs to be run.
+
+## Before pushing
+
+Run `npm test` and `npm run build` (or `npx tsc --noEmit` for a quick typecheck). If you
+change setup, roles or provisioning, update `territory-management-system/SETUP.md` too.
