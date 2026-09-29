@@ -1,6 +1,8 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CreateCongregationInput } from './schema'
+import { logError } from '../../errors'
+import { MAP_BUCKET } from '../territory/queries'
+import type { CreateCongregationInput, DeleteCongregationInput, UpdateCongregationInput } from './schema'
 
 // Where the invite email's link lands. The invite email template (email-templates/
 // invite-user.html) builds its own link straight to this page with a token_hash, which
@@ -112,6 +114,102 @@ export async function createCongregationWithAdminInvite(service: SupabaseClient,
     return { error: profileError.message }
   }
   return {}
+}
+
+// Same three fields the Administrator can change from their own Settings page. A time zone
+// change moves where "today" ends for assignment links (they're day-scoped to it), so the
+// console warns before saving one.
+export async function updateCongregationDetails(service: SupabaseClient, input: UpdateCongregationInput): Promise<{ error?: string }> {
+  const { data, error } = await service
+    .from('congregations')
+    .update({ name: input.name, congregation_number: input.congregationNumber, timezone: input.timezone })
+    .eq('id', input.congregationId)
+    .select('id')
+    .maybeSingle()
+  if (error) {
+    if (error.code === '23505') return { error: `Congregation number ${input.congregationNumber} is already registered.` }
+    return { error: error.message }
+  }
+  if (!data) return { error: 'Congregation not found.' }
+  return {}
+}
+
+// Permanently removes a congregation and everything in it. Order matters, since Supabase has
+// no transaction spanning Postgres, Auth and Storage:
+//   1. Delete the congregations row. Every tenant table references it with on delete cascade,
+//      so all territories, records, visits, history, batches and partnerships go in that one
+//      statement — it either all happens or none of it does.
+//   2. Delete the Administrator/Group Leader logins. Their profiles only get
+//      congregation_id set null by step 1 (001's profiles_congregation_fk), and requireRole
+//      already rejects a profile with no congregation, so a failure here leaves harmless
+//      orphans rather than a half-deleted congregation someone can still sign in to.
+//   3. Remove the territory map images (private bucket, one folder per congregation).
+// Steps 2–3 are best-effort after step 1 and are logged, not rolled back.
+export async function deleteCongregationPermanently(
+  service: SupabaseClient,
+  input: DeleteCongregationInput
+): Promise<{ error?: string }> {
+  const { data: congregation } = await service
+    .from('congregations')
+    .select('id, congregation_number')
+    .eq('id', input.congregationId)
+    .maybeSingle()
+  if (!congregation) return { error: 'Congregation not found.' }
+  if (congregation.congregation_number !== input.confirmNumber) {
+    return { error: 'The congregation number you typed does not match. Nothing was deleted.' }
+  }
+
+  // Collected before step 1 nulls their congregation_id. Roles are listed explicitly so a
+  // super_admin (congregation_id null, never a tenant member) can't be caught here.
+  const { data: members, error: membersError } = await service
+    .from('profiles')
+    .select('id')
+    .eq('congregation_id', congregation.id)
+    .in('role', ['admin', 'group_leader'])
+  if (membersError) return { error: membersError.message }
+
+  const { error: deleteError } = await service.from('congregations').delete().eq('id', congregation.id)
+  if (deleteError) return { error: deleteError.message }
+
+  let cleanupFailed = false
+  for (const member of (members ?? []) as { id: string }[]) {
+    const { error } = await service.auth.admin.deleteUser(member.id)
+    if (error) {
+      cleanupFailed = true
+      // null, not the congregation id — that row is gone and error_logs.congregation_id is a FK.
+      await logError(null, 'platform.deleteCongregation.deleteUser', new Error(`${member.id}: ${error.message}`))
+    }
+  }
+
+  try {
+    await removeCongregationMaps(service, congregation.id as string)
+  } catch (err) {
+    cleanupFailed = true
+    await logError(null, 'platform.deleteCongregation.removeMaps', err)
+  }
+
+  if (cleanupFailed) {
+    return { error: 'The congregation was deleted, but some logins or map images could not be removed. See error logs.' }
+  }
+  return {}
+}
+
+// Maps live at <congregationId>/<territoryId>/map.<ext> (uploadTerritoryMap). Storage list()
+// isn't recursive, so this walks the one level of territory folders.
+async function removeCongregationMaps(service: SupabaseClient, congregationId: string): Promise<void> {
+  const bucket = service.storage.from(MAP_BUCKET)
+  const { data: folders, error: listError } = await bucket.list(congregationId, { limit: 1000 })
+  if (listError) throw listError
+
+  const paths: string[] = []
+  for (const folder of folders ?? []) {
+    const { data: files, error } = await bucket.list(`${congregationId}/${folder.name}`, { limit: 100 })
+    if (error) throw error
+    for (const file of files ?? []) paths.push(`${congregationId}/${folder.name}/${file.name}`)
+  }
+  if (paths.length === 0) return
+  const { error: removeError } = await bucket.remove(paths)
+  if (removeError) throw removeError
 }
 
 // Re-sends the invite email to an Administrator who hasn't signed in yet. Supabase re-sends
