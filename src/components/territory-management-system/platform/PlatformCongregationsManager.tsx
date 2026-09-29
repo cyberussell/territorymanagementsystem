@@ -3,10 +3,12 @@
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Building2, Mail } from 'lucide-react'
+import { Building2, Mail, Pencil, Trash2 } from 'lucide-react'
 import type { PlatformCongregation } from '@/lib/territory-management-system/modules/platform/queries'
-import { createCongregationAction, resendAdminInviteAction } from '@/app/tms/actions/platform'
+import { createCongregationAction, deleteCongregationAction, resendAdminInviteAction } from '@/app/tms/actions/platform'
 import { useServerAction } from '@/lib/territory-management-system/hooks/useServerAction'
+import { usePrompt } from '@/lib/territory-management-system/hooks/usePrompt'
+import EditCongregationModal from './EditCongregationModal'
 import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
 import DataTable from '@/components/territory-management-system/dashboard/DataTable'
@@ -15,7 +17,10 @@ export default function PlatformCongregationsManager({ congregations }: { congre
   const router = useRouter()
   const { dispatch, pending, error, successMessage, state } = useServerAction(createCongregationAction, ['SAVED'], 'Congregation added — invite sent.')
   const [resendingId, setResendingId] = useState<string | null>(null)
+  const [editing, setEditing] = useState<PlatformCongregation | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
+  const { prompt, PromptDialog } = usePrompt()
 
   useEffect(() => {
     if (successMessage) router.refresh()
@@ -32,8 +37,35 @@ export default function PlatformCongregationsManager({ congregations }: { congre
     })
   }
 
+  // Typed confirmation rather than a yes/no: this wipes every record, visit and assignment the
+  // congregation has, plus its Administrator and Group Leader logins, and can't be undone.
+  // The server re-checks the typed number (deleteCongregationPermanently).
+  async function deleteCongregation(c: PlatformCongregation) {
+    const typed = await prompt({
+      title: `Delete ${c.name}?`,
+      message: `This permanently deletes the congregation, its ${c.territoryCount} territories and ${c.recordCount} records, all visit history and assignments, and the Administrator and Group Leader logins. It cannot be undone. Type the congregation number (${c.congregationNumber}) to confirm.`,
+      placeholder: c.congregationNumber,
+      confirmLabel: 'Delete permanently',
+    })
+    if (typed === null) return
+    if (typed.trim() !== c.congregationNumber) {
+      toast.error('The congregation number you typed does not match. Nothing was deleted.')
+      return
+    }
+    setDeletingId(c.id)
+    startTransition(async () => {
+      const result = await deleteCongregationAction(c.id, typed)
+      setDeletingId(null)
+      if (result.error) toast.error(result.error)
+      else toast.success(`${c.name} was deleted.`)
+      router.refresh()
+    })
+  }
+
   return (
     <div className="space-y-6">
+      {PromptDialog}
+      {editing && <EditCongregationModal key={editing.id} congregation={editing} onClose={() => setEditing(null)} />}
       <Card className="p-6">
         <h2 className="mb-4 font-semibold text-[#0B1B33]">Add Congregation</h2>
         {/* Keyed on state so a successful submit remounts the form empty. */}
@@ -122,6 +154,30 @@ export default function PlatformCongregationsManager({ congregations }: { congre
             header: 'Added',
             cell: (c) => new Date(c.createdAt).toLocaleDateString('en-US', { dateStyle: 'medium' }),
             sortValue: (c) => c.createdAt,
+          },
+          {
+            header: 'Actions',
+            cell: (c) => (
+              <div className="flex items-center gap-3 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => setEditing(c)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#2563EB] hover:underline"
+                >
+                  <Pencil className="h-3 w-3" aria-hidden />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingId === c.id}
+                  onClick={() => deleteCongregation(c)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline disabled:opacity-50"
+                >
+                  <Trash2 className="h-3 w-3" aria-hidden />
+                  {deletingId === c.id ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            ),
           },
         ]}
         rows={congregations}

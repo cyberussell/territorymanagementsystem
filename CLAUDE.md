@@ -80,6 +80,10 @@ rule changes, update the code comment, this section, and add a migration if the 
   flat `congregation_id = caller's` check with no joins. This avoids RLS recursion (001).
 - There is no public signup. A super admin creates congregations at `/tms/platform` and emails
   the Administrator an invite (046).
+- The super admin can edit a congregation's name, number and time zone, and can delete it
+  permanently after typing its number back (re-checked server-side). Deleting cascades every
+  tenant table, then removes its Administrator/Group Leader logins and territory map images
+  (`deleteCongregationPermanently` in `modules/platform/queries.ts`).
 
 ### Accounts
 - The Administrator owns congregation settings, territories/sections/blocks, and records, and

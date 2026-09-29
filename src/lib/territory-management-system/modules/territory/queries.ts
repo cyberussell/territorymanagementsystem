@@ -171,7 +171,7 @@ export async function deleteBlock(supabase: SupabaseClient, blockId: string): Pr
   if (error) throw error
 }
 
-const MAP_BUCKET = 'territory-maps'
+export const MAP_BUCKET = 'territory-maps'
 // Signed map links only need to outlive one field-ministry day — publisher links are day-scoped
 // (see isBatchExpired), and the offline "Download Assignment" step caches the image as a Blob
 // at download time, so an expired link never matters once it's cached.
