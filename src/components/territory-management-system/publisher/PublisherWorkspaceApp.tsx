@@ -980,6 +980,7 @@ export default function PublisherWorkspaceApp({
         {(view.name === 'home' || view.name === 'list') && (readOnly || workspace.claimed_at) && needsSearchScope && (
           <ChooseSearchScopeForm
             territories={batchTerritoryStructures}
+            mapUrls={mapUrls}
             submitting={choosingSearchScope}
             error={searchScopeChoiceError}
             onSubmit={handleChooseSearchScope}
@@ -1211,6 +1212,14 @@ export default function PublisherWorkspaceApp({
                         Section {workspace.searchScope.sectionLabel} — Block{blockLabels.length === 1 ? '' : 's'} {blockLabels.join(', ')}
                       </p>
                     </div>
+                    {/* The same map the Territory Map tab shows, one tap away from the area it
+                        describes — a searcher checks where their blocks are far more often than
+                        they switch tabs. */}
+                    {scopeTerritory && mapUrls[scopeTerritory.id] && (
+                      <div className="mt-3">
+                        <TerritoryMapViewer mapImageUrl={mapUrls[scopeTerritory.id]} territoryName={scopeTerritory.name} variant="button" />
+                      </div>
+                    )}
                     <div className="mt-3">
                       <SearchScopeRecordsList
                         sectionLabel={workspace.searchScope.sectionLabel}
