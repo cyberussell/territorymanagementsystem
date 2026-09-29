@@ -46,6 +46,7 @@ export default function PlatformCongregationsManager({ congregations }: { congre
       message: `This permanently deletes the congregation, its ${c.territoryCount} territories and ${c.recordCount} records, all visit history and assignments, and the Administrator and Group Leader logins. It cannot be undone. Type the congregation number (${c.congregationNumber}) to confirm.`,
       placeholder: c.congregationNumber,
       confirmLabel: 'Delete permanently',
+      variant: 'danger',
     })
     if (typed === null) return
     if (typed.trim() !== c.congregationNumber) {

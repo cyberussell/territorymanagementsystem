@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import PromptModal from '@/components/territory-management-system/PromptModal'
+import PromptModal, { type PromptVariant } from '@/components/territory-management-system/PromptModal'
 
 interface PromptOptions {
   title?: string
@@ -9,6 +9,7 @@ interface PromptOptions {
   placeholder?: string
   confirmLabel?: string
   cancelLabel?: string
+  variant?: PromptVariant
 }
 
 // Promise-based replacement for window.prompt() — resolves the entered string, or null if
@@ -39,6 +40,7 @@ export function usePrompt() {
       placeholder={options?.placeholder}
       confirmLabel={options?.confirmLabel}
       cancelLabel={options?.cancelLabel}
+      variant={options?.variant}
       onConfirm={(value) => settle(value)}
       onCancel={() => settle(null)}
     />
