@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react'
 import type { TerritoryStructure } from '@/lib/territory-management-system/modules/territory/types'
 import FormField, { inputClass } from '@/components/territory-management-system/dashboard/FormField'
 import Card from '@/components/territory-management-system/dashboard/Card'
+import TerritoryMapViewer from '@/components/territory-management-system/TerritoryMapViewer'
 
 // The Ministry Partner's one-time, locked-in search-area choice for an overflow batch — made
 // right after claiming, required before anything else in the workspace becomes visible (see
@@ -12,13 +13,20 @@ import Card from '@/components/territory-management-system/dashboard/Card'
 // affordance anywhere: once saved, this form never renders again for this partnership. The
 // section is a single choice per partnership; blocks are shareable — other partnerships can
 // (and often will) pick the same ones, by design (see 037_partnership_search_blocks_shareable.sql).
+//
+// The selected territory's map is shown above the pickers (Russell's request): section/block
+// labels mean nothing without seeing where they are, and the choice can't be undone. mapUrls is
+// the workspace's already-resolved map per territory id (offline blob or signed URL); a
+// territory without an uploaded map just shows no map.
 export default function ChooseSearchScopeForm({
   territories,
+  mapUrls,
   submitting,
   error,
   onSubmit,
 }: {
   territories: TerritoryStructure[]
+  mapUrls: Record<string, string>
   submitting: boolean
   error: string
   onSubmit: (sectionId: string, blockIds: string[]) => void
@@ -61,6 +69,13 @@ export default function ChooseSearchScopeForm({
               ))}
             </select>
           </FormField>
+        )}
+
+        {territory && mapUrls[territory.id] && (
+          <div>
+            <p className="mb-1 text-xs text-slate-700">{territory.name} map — tap to enlarge</p>
+            <TerritoryMapViewer mapImageUrl={mapUrls[territory.id]} territoryName={territory.name} />
+          </div>
         )}
 
         {territory && (

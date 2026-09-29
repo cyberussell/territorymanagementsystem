@@ -118,7 +118,8 @@ rule changes, update the code comment, this section, and add a migration if the 
 - **House To House** (normal) partnerships are named "Ministry Partner N". **Overflow /
   Auxiliary** batches (`is_overflow`, zero pre-assigned records) are named "Language Searcher N".
   Use `defaultPartnershipName` for both. Overflow partners choose one section + blocks once
-  after claiming (026). Several partners may search the same block (037).
+  after claiming (026). Several partners may search the same block (037). The territory map is
+  shown while they choose and again on their "Area To Search" section.
 - A Group Leader can add one more partnership later; it fills from the next unassigned
   households. The Group Leader can also *offer* an unassigned record to a specific partner, who
   must accept or decline. At most one pending offer per record (043).
